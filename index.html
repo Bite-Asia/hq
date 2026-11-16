@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <!-- Only this site's own files, two pinned libraries from jsDelivr, the
+       brand font, and Bite's own Supabase project may load or be called. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://txmpfxvptrsxefzcpilj.supabase.co; base-uri 'none'; form-action 'none'">
+  <title>Bite HQ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="hq.css">
+</head>
+<body>
+  <!-- Shown until the page knows who is here. -->
+  <main id="loading" class="centre">
+    <p class="quiet">Opening Bite HQ…</p>
+  </main>
+
+  <!-- Sign in. -->
+  <main id="signin" class="centre" hidden>
+    <form id="signin-form" class="card signin" autocomplete="on">
+      <h1 class="brand">Bite <span>HQ</span></h1>
+      <p class="quiet">For the Bite team. Sign in with an admin account.</p>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p id="signin-error" class="error" role="alert" hidden></p>
+      <button id="signin-button" class="primary" type="submit">Sign in</button>
+    </form>
+  </main>
+
+  <!-- Signed in, but not an admin. -->
+  <main id="denied" class="centre" hidden>
+    <div class="card signin">
+      <h1 class="brand">Bite <span>HQ</span></h1>
+      <p>This account is not an admin, so there is nothing here for it.</p>
+      <button id="denied-signout" class="plain" type="button">Sign out</button>
+    </div>
+  </main>
+
+  <!-- The editor. -->
+  <div id="app" hidden>
+    <header class="top">
+      <h1 class="brand">Bite <span>HQ</span></h1>
+      <p id="demo-flag" class="flag" hidden>Demo. Nothing here is saved.</p>
+      <div class="top-right">
+        <p id="status" class="quiet"></p>
+        <button id="publish" class="primary" type="button" disabled>Publish now</button>
+        <button id="signout" class="plain" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="find card">
+        <h2>Add a place</h2>
+        <form id="search-form">
+          <label for="search" class="sr">Search for a place</label>
+          <input id="search" type="search" placeholder="Burnt Ends, Apartment Coffee" autocomplete="off">
+          <button id="search-all" class="plain" type="submit">Search all of Singapore</button>
+        </form>
+        <p id="search-note" class="quiet small">Type to find places already on Bite. Press Enter to search every place in Singapore.</p>
+        <div id="results"></div>
+      </aside>
+
+      <section class="lists" aria-label="Bite's lists">
+        <p class="quiet small rules">Drag a place to rank it. The order is live in the app as soon as you drop it. Adding and removing wait for Publish, or for the 1st of the month.</p>
+        <div id="lists" class="list-grid"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="hq.js"></script>
+</body>
+</html>
