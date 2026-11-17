@@ -176,11 +176,45 @@ function liveApi() {
       const { data, error } = await db.rpc('hq_totals');
       return error ? null : data ?? {};
     },
+    // History, closed places and guides (migration 067). The three that
+    // read answer null when that migration has not been run yet.
+    async log() {
+      const { data, error } = await db.rpc('hq_log_recent', { p_limit: 150 });
+      return error ? null : data ?? [];
+    },
+    async statuses() {
+      const { data, error } = await db.rpc('hq_place_status_get');
+      return error ? null : data ?? [];
+    },
+    async saveStatuses(items) {
+      must(await db.rpc('hq_place_status_set', { p_items: items }));
+    },
+    async guides() {
+      const { data, error } = await db.rpc('hq_guides');
+      return error ? null : data ?? [];
+    },
+    async saveGuide(g) {
+      return must(
+        await db.rpc('hq_guide_save', {
+          p_id: g.id,
+          p_title: g.title,
+          p_tagline: g.tagline,
+          p_description: g.description,
+          p_visibility: g.visibility,
+          p_items: g.items.map((i) => ({ restaurant_id: i.restaurant_id, note: i.note ?? '' })),
+        }),
+      );
+    },
+    async deleteGuide(id) {
+      return must(await db.rpc('hq_guide_delete', { p_id: id }));
+    },
     async searchBite(q) {
       return must(await db.from('restaurants').select(PLACE).ilike('name', like(q)).order('name').limit(8));
     },
     searchGoogle: (q) => google({ action: 'search', q }),
     placeDetails: (placeId) => google({ action: 'place', place_id: placeId }),
+    checkStatuses: (placeIds) => google({ action: 'status', place_ids: placeIds }),
+    thumbs: (placeIds) => google({ action: 'thumbs', place_ids: placeIds }),
     // A place Google found, saved into Bite the way the app saves one.
     async saveGooglePlace(p) {
       const tags = classify(p.kind);
@@ -260,6 +294,25 @@ function demoApi() {
   ];
   const of = (list) => picks.filter((p) => p.list === list).sort((a, b) => a.position - b.position);
   const pause = () => new Promise((done) => setTimeout(done, 120));
+  // One listed place has shut, so the warning has something to show.
+  let statusRows = [{ restaurant_id: 'demo-6', status: 'CLOSED_PERMANENTLY', checked_at: ago(1) }];
+  let logRows = [
+    { at: ago(0.02), actor: 'arnold', action: 'added', list: 'top25', place_name: 'Laksa Republic', detail: {} },
+    { at: ago(0.05), actor: 'arnold', action: 'removing', list: 'top25', place_name: 'Seoul Night Grill', detail: {} },
+    { at: ago(1), actor: 'bite', action: 'reordered', list: 'top25', place_name: null, detail: { moved: 4 } },
+    { at: ago(2), actor: 'bite', action: 'guide_saved', list: null, place_name: null, detail: { title: 'Supper after midnight', places: 3, visibility: 'public' } },
+    { at: ago(16), actor: null, action: 'went_live', list: 'newly_opened', place_name: 'Brand New Bistro', detail: {} },
+  ];
+  const note = (action, more) => logRows.unshift({ at: new Date().toISOString(), actor: 'demo', place_name: null, list: null, detail: {}, action, ...more });
+  let guideRows = [
+    {
+      id: 'guide-1', title: 'Supper after midnight', tagline: 'Open late, worth it', description: 'Where to go when everything else has shut.',
+      visibility: 'public', created_at: ago(9), saves: 12,
+      items: [[12, 'Wok hei at 1am. Order the hor fun.'], [2, 'The queue is shorter after midnight.'], [5, '']].map(([n, text]) => ({
+        restaurant_id: `demo-${n}`, note: text, restaurant: byId(`demo-${n}`),
+      })),
+    },
+  ];
   return {
     async user() {
       return { email: 'demo@bite' };
@@ -292,6 +345,46 @@ function demoApi() {
     },
     async totals() {
       return { accounts: 214, accounts_week: 31, visits: 178, visits_week: 42, saves: 209, saves_week: 55, guides: 23, places: 412 };
+    },
+    async log() {
+      return logRows.map((r) => ({ ...r }));
+    },
+    async statuses() {
+      return statusRows.map((r) => ({ ...r }));
+    },
+    async saveStatuses(items) {
+      for (const it of items) {
+        statusRows = statusRows.filter((r) => r.restaurant_id !== it.id);
+        statusRows.push({ restaurant_id: it.id, status: it.status, checked_at: new Date().toISOString() });
+      }
+    },
+    async checkStatuses(placeIds) {
+      await pause();
+      return { ok: true, places: placeIds.map((id) => ({ place_id: id, status: id === 'g-6' ? 'CLOSED_PERMANENTLY' : 'OPERATIONAL' })) };
+    },
+    async thumbs(placeIds) {
+      await pause();
+      return { ok: true, places: placeIds.map((id, i) => ({ place_id: id, photo: swatch(i) })) };
+    },
+    async guides() {
+      return guideRows.map((g) => ({ ...g, items: g.items.map((i) => ({ ...i })) }));
+    },
+    async saveGuide(g) {
+      await pause();
+      const items = g.items.map((i) => ({ restaurant_id: i.restaurant_id, note: (i.note ?? '').trim(), restaurant: byId(i.restaurant_id) ?? i.restaurant }));
+      if (g.visibility !== 'private' && !items.length) throw new Error('a guide people can see needs at least one place');
+      const id = g.id ?? `guide-${Date.now()}`;
+      const old = guideRows.find((x) => x.id === id);
+      const row = { id, title: g.title.trim(), tagline: g.tagline, description: g.description, visibility: g.visibility, created_at: old?.created_at ?? new Date().toISOString(), saves: old?.saves ?? 0, items };
+      guideRows = [row, ...guideRows.filter((x) => x.id !== id)];
+      note(old ? 'guide_saved' : 'guide_created', { detail: { title: row.title, places: items.length, visibility: row.visibility } });
+      return id;
+    },
+    async deleteGuide(id) {
+      const old = guideRows.find((x) => x.id === id);
+      guideRows = guideRows.filter((x) => x.id !== id);
+      if (old) note('guide_deleted', { detail: { title: old.title } });
+      return Boolean(old);
     },
     async searchBite(q) {
       await pause();
@@ -332,6 +425,7 @@ function demoApi() {
     async setPick(list, id, on) {
       await pause();
       const row = picks.find((p) => p.list === list && p.restaurant_id === id);
+      note(on ? (row ? 'kept' : 'added') : row?.live ? 'removing' : 'draft_removed', { list, place_name: byId(id)?.name ?? null });
       if (on) {
         if (!row) picks.push({ list, restaurant_id: id, position: Math.max(0, ...of(list).map((p) => p.position)) + 1, live: false, pending: 'add', published_at: null, created_at: new Date().toISOString(), restaurant: byId(id) });
         else if (row.pending === 'remove') row.pending = null;
@@ -345,6 +439,7 @@ function demoApi() {
       [...named, ...rows.filter((r) => !named.includes(r))].forEach((r, i) => {
         r.position = i + 1;
       });
+      note('reordered', { list, detail: { moved: rows.length } });
     },
     async publish() {
       await pause();
@@ -369,6 +464,15 @@ let found = { q: '', bite: [], google: null }; // the search panel
 let busy = false; // one change at a time
 let panelPlace = null; // the place the close-up panel is showing
 let lastDrag = 0; // when a drag last ended, so its click is not a tap
+let tab = 'lists'; // lists, guides or history
+let statuses = null; // what Google last said about listed places; null = not available yet
+let statusById = new Map();
+let checking = false; // a closed-place check is running
+let checkFailed = ''; // why the last check did not finish
+let guides = null; // Bite's guides; null = not available yet
+let draft = null; // the guide open in the editor
+let log = null; // the change history; null = not available yet
+const thumbs = new Map(); // small photos by Google place id, for previews
 
 const rowsOf = (list) => picks.filter((p) => p.list === list && p.restaurant);
 const pickOf = (list, id) => picks.find((p) => p.list === list && p.restaurant_id === id);
@@ -380,14 +484,21 @@ const isOn = (list, id) => {
 const listsOf = (id) => LISTS.filter((l) => isOn(l.key, id)).map((l) => l.label);
 
 async function refresh() {
-  [picks, status, stats, totals] = await Promise.all([api.picks(), api.status(), api.stats(), api.totals()]);
+  [picks, status, stats, totals, statuses, guides, log] = await Promise.all([
+    api.picks(), api.status(), api.stats(), api.totals(), api.statuses(), api.guides(), api.log(),
+  ]);
   statsById = new Map((stats ?? []).map((s) => [s.id, s]));
+  statusById = new Map((statuses ?? []).map((s) => [s.restaurant_id, s]));
   renderTotals();
   renderLists();
+  renderClosed();
   renderStatus();
   renderResults();
   renderInsights();
+  renderGuidePicker();
+  renderHistory();
   if ($('panel').open && panelPlace) renderPanel();
+  if ($('preview').open) renderPreview();
 }
 
 // Runs one change, then reads everything back from the database, so the
@@ -519,6 +630,7 @@ function renderLists() {
               numbers ? el('div', { class: 'row-stats', text: numbers }) : null,
             ]),
             el('div', { class: 'row-side' }, [
+              CLOSED[statusById.get(r.restaurant_id)?.status] ? el('span', { class: 'badge shut', text: CLOSED[statusById.get(r.restaurant_id).status] }) : null,
               r.pending === 'add' ? el('span', { class: 'badge add', text: 'Draft' }) : null,
               leaving ? el('span', { class: 'badge remove', text: 'Removing' }) : null,
               el('button', {
@@ -554,16 +666,31 @@ function renderLists() {
       });
 
       return el('section', { class: 'card list' }, [
-        el('div', { class: 'list-head' }, [el('h3', { text: list.label }), el('p', { class: 'list-count', text: count })]),
+        el('div', { class: 'list-head' }, [
+          el('div', {}, [el('h3', { text: list.label }), el('p', { class: 'list-count', text: count })]),
+          el('button', { class: 'icon', type: 'button', text: 'Preview', title: 'See it as the app shows it', on: { click: () => openPreview(list) } }),
+        ]),
         rows.length ? ol : el('p', { class: 'empty', text: 'Nothing here yet. Search on the left and add a place.' }),
       ]);
     }),
   );
 }
 
-// The buttons that put a place on a list.
+// The buttons that put a place on a list, or in the guide being edited.
 function listChips(place) {
   const id = place.id ?? null;
+  if (tab === 'guides') {
+    const inGuide = Boolean(draft && id && draft.items.some((i) => i.restaurant_id === id));
+    return el('div', { class: 'chips' }, [
+      el('button', {
+        class: `chip${inGuide ? ' on' : ''}`,
+        type: 'button',
+        disabled: !draft || inGuide,
+        text: !draft ? 'Open a guide first' : inGuide ? 'In this guide' : 'Add to this guide',
+        on: { click: () => addToGuide(place) },
+      }),
+    ]);
+  }
   return el(
     'div',
     { class: 'chips' },
@@ -828,6 +955,521 @@ function renderPanel() {
   );
 }
 
+// ───────────────────────── a listed place has closed ─────────────────────────
+// The page asks Google about every listed place once a week, when Bite
+// HQ is opened, and files the answers (hq_place_status). A place Google
+// says has shut is flagged on its row and gathered into a red box.
+
+function listedPlaces() {
+  const out = new Map(); // restaurant id -> { place, lists }
+  for (const p of picks) {
+    if (!p.restaurant || p.pending === 'remove') continue;
+    const have = out.get(p.restaurant_id) ?? { place: p.restaurant, lists: [] };
+    have.lists.push(LISTS.find((l) => l.key === p.list) ?? { key: p.list, label: p.list });
+    out.set(p.restaurant_id, have);
+  }
+  return out;
+}
+
+function renderClosed() {
+  const box = $('closed');
+  const note = $('closed-note');
+  if (statuses === null) {
+    box.hidden = true;
+    note.textContent = 'The check for closed places needs migration 067. Run it in Supabase and reload.';
+    return;
+  }
+  const shut = [...listedPlaces()].filter(([id]) => CLOSED[statusById.get(id)?.status]);
+  if (shut.length) {
+    box.replaceChildren(
+      el('h3', { text: `${shut.length === 1 ? 'A place' : `${shut.length} places`} on your lists ${shut.length === 1 ? 'has' : 'have'} closed, Google says` }),
+      ...shut.map(([id, { place, lists }]) =>
+        el('div', { class: 'closed-row' }, [
+          el('div', {}, [
+            nameButton(place, 'row-name'),
+            el('span', { class: 'quiet', text: ` · ${CLOSED[statusById.get(id).status]} · on ${lists.map((l) => l.label).join(', ')}` }),
+          ]),
+          el('button', {
+            class: 'plain',
+            type: 'button',
+            text: lists.length === 1 ? `Remove from ${lists[0].label}` : 'Remove from all lists',
+            on: {
+              click: () =>
+                change(async () => {
+                  for (const l of lists) await api.setPick(l.key, id, false);
+                }, 'Marked to leave at the next publish'),
+            },
+          }),
+        ]),
+      ),
+    );
+    box.hidden = false;
+  } else box.hidden = true;
+
+  const times = [...listedPlaces().keys()].map((id) => statusById.get(id)?.checked_at).filter(Boolean).sort();
+  const last = times.length ? new Date(times[times.length - 1]).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }) : null;
+  note.replaceChildren(
+    document.createTextNode(
+      checking
+        ? 'Asking Google which listed places are still open… '
+        : checkFailed
+          ? `The check for closed places did not finish: ${checkFailed} `
+          : last
+            ? `Listed places checked with Google on ${last}. Checked again every week when Bite HQ is open. `
+            : 'Listed places have not been checked with Google yet. ',
+    ),
+    checking ? '' : el('button', { class: 'link', type: 'button', text: 'Check now', on: { click: () => checkClosed(true) } }),
+  );
+}
+
+async function checkClosed(force) {
+  if (statuses === null || checking) return;
+  const due = [...listedPlaces()]
+    .filter(([, v]) => v.place.place_id)
+    .filter(([id]) => {
+      const at = statusById.get(id)?.checked_at;
+      return force || !at || Date.now() - new Date(at).getTime() > 7 * DAY;
+    })
+    .map(([id, v]) => [id, v.place.place_id]);
+  if (!due.length) {
+    if (force) toast('Nothing on a list to check');
+    return;
+  }
+  checking = true;
+  checkFailed = '';
+  renderClosed();
+  try {
+    for (let i = 0; i < due.length; i += 60) {
+      const chunk = due.slice(i, i + 60);
+      const res = await api.checkStatuses(chunk.map(([, placeId]) => placeId));
+      if (!res.ok) {
+        checkFailed = GOOGLE_SAYS[res.reason] ?? GOOGLE_SAYS.failed;
+        break;
+      }
+      const said = new Map(res.places.map((p) => [p.place_id, p.status]));
+      await api.saveStatuses(chunk.map(([id, placeId]) => ({ id, status: said.get(placeId) ?? 'UNKNOWN' })));
+    }
+    statuses = await api.statuses();
+    statusById = new Map((statuses ?? []).map((s) => [s.restaurant_id, s]));
+  } catch (e) {
+    checkFailed = explain(e);
+  } finally {
+    checking = false;
+    renderLists();
+    renderClosed();
+    if (force && !checkFailed) toast('Checked with Google');
+  }
+}
+
+// ───────────────────────── preview: a list as the app shows it ─────────────────────────
+// A close copy of the app's own page (bite/app/curated/[key].tsx): the
+// same words, colours, order and cut-offs. Not the app itself.
+
+const PAGES = {
+  top25: { title: 'Top 25 on Bite', blurb: 'Chosen by Bite. The places worth your time right now.', plate: '#43301E', on: '#B5D334' },
+  newly_opened: { title: 'Newly opened', blurb: 'Opened in the last month. Added by Bite as they appear.', plate: '#EDF4D4', on: '#55700B', empty: 'Bite is still out scouting the new openings. Check back soon.' },
+  sweet: { title: 'Sweet Tooth', blurb: 'Desserts, bakes, and anything sweet. Picked by Bite.', plate: '#55700B', on: '#EDF4D4', empty: 'Bite is still picking the sweet spots. Check back soon.' },
+  brews: { title: 'Coffee & Matcha', blurb: 'Worth it for the cup. Good coffee, good matcha, picked by Bite.', plate: '#EFEBE4', on: '#43301E', empty: 'Bite is still tasting its way round. Check back soon.' },
+};
+
+let previewOf = null; // { list, mode: 'after' | 'now' }
+
+// The rows a person would see: after the next publish, or right now.
+function previewRows(list, mode) {
+  let rows = rowsOf(list.key).filter((r) => (mode === 'after' ? r.pending !== 'remove' : r.live));
+  if (list.key === 'newly_opened') {
+    rows = rows.filter((r) => !r.live || !r.published_at || Date.now() - new Date(r.published_at).getTime() < NEWLY_OPENED_DAYS * DAY);
+  }
+  return list.key === 'top25' ? rows.slice(0, TOP25_SHOWN) : rows;
+}
+
+async function openPreview(list) {
+  previewOf = { list, mode: 'after' };
+  renderPreview();
+  if (!$('preview').open) $('preview').showModal();
+  // Small photos for the places that do not have one yet this session.
+  const need = [...new Set(rowsOf(list.key).map((r) => r.restaurant.place_id).filter((id) => id && !thumbs.has(id)))];
+  for (let i = 0; i < need.length; i += 40) {
+    const res = await api.thumbs(need.slice(i, i + 40)).catch(() => ({ ok: false }));
+    if (!res.ok) break;
+    for (const p of res.places) thumbs.set(p.place_id, p.photo ?? '');
+    if (previewOf?.list === list) renderPreview();
+  }
+}
+
+function renderPreview() {
+  if (!previewOf) return;
+  const { list, mode } = previewOf;
+  const page = PAGES[list.key] ?? { title: list.label, blurb: '', plate: '#EFEBE4', on: '#43301E' };
+  const rows = previewRows(list, mode);
+  const changed = rowsOf(list.key).some((r) => r.pending);
+  const plate = el('div', { class: 'plate' }, [
+    el('div', { class: 'plate-micro', text: 'Made by Bite' }),
+    el('div', { class: 'plate-title', text: page.title }),
+    el('div', { class: 'plate-blurb', text: page.blurb }),
+  ]);
+  plate.style.background = page.plate;
+  plate.style.color = page.on;
+  const seg = (value, text) =>
+    el('button', {
+      class: mode === value ? 'on' : '',
+      type: 'button',
+      text,
+      on: {
+        click: () => {
+          previewOf.mode = value;
+          renderPreview();
+        },
+      },
+    });
+  $('preview-body').replaceChildren(
+    el('div', { class: 'preview-bar' }, [
+      el('div', { class: 'seg' }, [seg('after', 'After publish'), seg('now', 'Live now')]),
+      el('button', { class: 'plain', type: 'button', text: 'Close', on: { click: () => $('preview').close() } }),
+    ]),
+    el('div', { class: 'phone' }, [
+      plate,
+      ...(rows.length
+        ? rows.map((r, i) => {
+            const src = thumbs.get(r.restaurant.place_id);
+            const avg = statsById.get(r.restaurant_id)?.avg_score;
+            return el('div', { class: `app-row${mode === 'after' && r.pending === 'add' ? ' draft' : ''}` }, [
+              el('div', { class: 'app-rank', text: String(i + 1) }),
+              src ? el('img', { class: 'app-thumb', src, alt: '', referrerpolicy: 'no-referrer' }) : el('div', { class: 'app-thumb' }),
+              el('div', {}, [
+                el('div', { class: 'app-name', text: r.restaurant.name }),
+                placeMeta(r.restaurant) ? el('div', { class: 'app-meta', text: placeMeta(r.restaurant) }) : null,
+              ]),
+              avg != null ? el('span', { class: 'app-score', text: Number(avg).toFixed(1) }) : null,
+            ]);
+          })
+        : [el('p', { class: 'empty preview-foot', text: page.empty ?? 'This list fills itself as people log visits and save places.' })]),
+      el('p', {
+        class: 'quiet small preview-foot',
+        text:
+          mode === 'after'
+            ? changed
+              ? 'How the list will look once you publish. A dashed outline marks a place that is not live yet.'
+              : 'Nothing is waiting, so this is also what people see now.'
+            : 'What people see in the app right now.',
+      }),
+    ]),
+  );
+}
+
+// ───────────────────────── Bite's guides ─────────────────────────
+// A Bite guide is an ordinary guide owned by the official @bite account.
+// It is edited here as a whole and saved in one go: nothing changes in
+// the app until Save.
+
+const blankGuide = () => ({ id: null, title: '', tagline: '', description: '', visibility: 'private', items: [], dirty: false });
+
+function renderGuidePicker() {
+  const box = $('guide-picker');
+  if (guides === null) {
+    $('guides-note').textContent = 'Guides need migration 067. Run it in Supabase and reload.';
+    box.replaceChildren();
+    $('guide-editor').replaceChildren();
+    return;
+  }
+  box.replaceChildren(
+    ...guides.map((g) =>
+      el('button', { class: `guide-chip${draft?.id === g.id ? ' on' : ''}`, type: 'button', on: { click: () => openGuide(g) } }, [
+        el('span', { text: g.title }),
+        el('small', { text: `${g.visibility === 'public' ? 'Public' : 'Private'} · ${plural(g.items.length, 'place')}` }),
+      ]),
+    ),
+    el('button', { class: `guide-chip${draft && !draft.id ? ' on' : ''}`, type: 'button', text: 'New guide', on: { click: () => openGuide(null) } }),
+  );
+  if (!draft) $('guide-editor').replaceChildren(el('p', { class: 'empty', text: guides.length ? 'Pick a guide to edit it, or start a new one.' : 'No guides yet. Start the first one.' }));
+}
+
+function openGuide(g) {
+  if (draft?.dirty && !window.confirm('This guide has changes you have not saved. Leave them behind?')) return;
+  draft = g
+    ? { id: g.id, title: g.title ?? '', tagline: g.tagline ?? '', description: g.description ?? '', visibility: g.visibility === 'public' ? 'public' : 'private', items: g.items.map((i) => ({ ...i, note: i.note ?? '' })), saves: g.saves ?? 0, dirty: false }
+    : blankGuide();
+  renderGuidePicker();
+  renderGuideEditor();
+  renderResults();
+}
+
+// Marks the guide as changed and brings the Save button to life.
+function touch() {
+  if (!draft) return;
+  draft.dirty = true;
+  const save = document.getElementById('guide-save');
+  if (save) save.disabled = false;
+  const state = document.getElementById('guide-state');
+  if (state) state.textContent = 'Changes not saved yet';
+}
+
+function renderGuideEditor() {
+  const box = $('guide-editor');
+  if (!draft) return;
+  // A text box that writes straight into the guide being edited.
+  const field = (label, key, max, tagName = 'input', extra = {}) => {
+    const count = el('span', { class: 'count', text: `${draft[key].length} / ${max}` });
+    const input = el(tagName, {
+      maxlength: String(max),
+      ...extra,
+      on: {
+        input: (evt) => {
+          draft[key] = evt.target.value;
+          count.textContent = `${draft[key].length} / ${max}`;
+          touch();
+        },
+      },
+    });
+    input.value = draft[key];
+    return el('label', {}, [el('span', { class: 'label-row' }, [el('span', { text: label }), count]), input]);
+  };
+  const seg = (value, text) =>
+    el('button', {
+      class: draft.visibility === value ? 'on' : '',
+      type: 'button',
+      text,
+      on: {
+        click: () => {
+          draft.visibility = value;
+          touch();
+          renderGuideEditor();
+        },
+      },
+    });
+  box.replaceChildren(
+    el('div', { class: 'card editor' }, [
+      field('Title', 'title', 60, 'input', { type: 'text', placeholder: 'Supper after midnight' }),
+      field('One line under the title', 'tagline', 80, 'input', { type: 'text', placeholder: 'Open late, worth it' }),
+      field('What the guide is about', 'description', 1000, 'textarea', { rows: '3', placeholder: 'Say who it is for and why these places.' }),
+      el('div', {}, [
+        el('div', { class: 'seg' }, [seg('private', 'Private draft'), seg('public', 'Public')]),
+        el('p', {
+          class: 'quiet small',
+          text: draft.visibility === 'public'
+            ? 'Public: everyone on Bite can see it in the app the moment you save.'
+            : 'Private: only the Bite account can see it. Use this while you are still writing.',
+        }),
+      ]),
+      el('div', {}, [
+        el('h3', { text: 'Places, in order' }),
+        el('ol', { id: 'guide-rows', class: 'guide-rows' }),
+        el('p', { id: 'guide-rows-empty', class: 'empty' }),
+      ]),
+      el('div', { class: 'editor-foot' }, [
+        el('button', { id: 'guide-save', class: 'primary', type: 'button', text: draft.id ? 'Save changes' : 'Save guide', disabled: !draft.dirty, on: { click: saveGuide } }),
+        el('span', { id: 'guide-state', class: 'quiet small', text: draft.dirty ? 'Changes not saved yet' : draft.id ? `Saved${draft.saves ? ` · saved by ${plural(draft.saves, 'person', 'people')}` : ''}` : 'Not saved yet' }),
+        el('span', { class: 'spacer' }),
+        draft.id ? el('button', { class: 'danger', type: 'button', text: 'Delete guide', on: { click: deleteGuide } }) : null,
+      ]),
+    ]),
+  );
+  renderGuideRows();
+}
+
+function renderGuideRows() {
+  const ol = document.getElementById('guide-rows');
+  if (!ol || !draft) return;
+  document.getElementById('guide-rows-empty').textContent = draft.items.length ? '' : 'No places yet. Search on the left and press "Add to this guide".';
+  ol.replaceChildren(
+    ...draft.items.map((item, i) => {
+      const noteBox = el('textarea', {
+        rows: '2',
+        maxlength: '600',
+        placeholder: 'Why it is here, what to order',
+        'aria-label': `Note for ${item.restaurant.name}`,
+        on: {
+          input: (evt) => {
+            item.note = evt.target.value;
+            touch();
+          },
+        },
+      });
+      noteBox.value = item.note ?? '';
+      return el('li', { class: 'guide-row', data: { id: item.restaurant_id } }, [
+        el('span', { class: 'rank', text: String(i + 1) }),
+        el('div', {}, [
+          nameButton(item.restaurant, 'row-name'),
+          placeMeta(item.restaurant) ? el('div', { class: 'row-meta', text: placeMeta(item.restaurant) }) : null,
+          noteBox,
+        ]),
+        el('button', {
+          class: 'icon',
+          type: 'button',
+          text: 'Remove',
+          'aria-label': `Remove ${item.restaurant.name}`,
+          on: {
+            click: () => {
+              draft.items = draft.items.filter((x) => x !== item);
+              touch();
+              renderGuideRows();
+              renderResults();
+            },
+          },
+        }),
+      ]);
+    }),
+  );
+  Sortable.create(ol, {
+    animation: 160,
+    draggable: '.guide-row',
+    filter: 'textarea, .icon',
+    preventOnFilter: false,
+    onEnd: (evt) => {
+      lastDrag = Date.now();
+      if (evt.oldIndex === evt.newIndex) return;
+      const order = [...ol.querySelectorAll('.guide-row')].map((n) => n.dataset.id);
+      draft.items.sort((a, b) => order.indexOf(a.restaurant_id) - order.indexOf(b.restaurant_id));
+      touch();
+      renderGuideRows();
+    },
+  });
+}
+
+async function addToGuide(place) {
+  if (!draft || busy) return;
+  busy = true;
+  try {
+    // A place Google found is saved into Bite first, as it is for a list.
+    if (!place.id) {
+      const id = await api.saveGooglePlace(place);
+      const tags = classify(place.kind);
+      Object.assign(place, { id, cuisine: tags.cuisine, subcuisine: tags.subcuisine, area: areaFromAddress(place.address) });
+    }
+    if (!draft.items.some((i) => i.restaurant_id === place.id)) {
+      draft.items.push({ restaurant_id: place.id, note: '', restaurant: place });
+      touch();
+    }
+    renderGuideRows();
+    renderResults();
+  } catch (e) {
+    toast(explain(e), true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function saveGuide() {
+  if (!draft || busy) return;
+  if (!draft.title.trim()) {
+    toast('Give the guide a title first', true);
+    return;
+  }
+  if (draft.visibility === 'public' && !draft.items.length) {
+    toast('A public guide needs at least one place. Add one, or keep it private for now.', true);
+    return;
+  }
+  busy = true;
+  try {
+    const id = await api.saveGuide(draft);
+    draft.dirty = false;
+    guides = await api.guides();
+    log = await api.log();
+    const saved = (guides ?? []).find((g) => g.id === id);
+    if (saved) openGuide(saved);
+    renderHistory();
+    toast(saved?.visibility === 'public' ? 'Saved. It is live in the app.' : 'Saved as a private draft');
+  } catch (e) {
+    toast(explain(e), true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function deleteGuide() {
+  if (!draft?.id || busy) return;
+  if (!window.confirm(`Delete the guide "${draft.title}"?\n\nIt goes from the app for everyone, along with anyone's saves of it. This cannot be undone.`)) return;
+  busy = true;
+  try {
+    await api.deleteGuide(draft.id);
+    draft = null;
+    guides = await api.guides();
+    log = await api.log();
+    renderGuidePicker();
+    renderHistory();
+    renderResults();
+    toast('Guide deleted');
+  } catch (e) {
+    toast(explain(e), true);
+  } finally {
+    busy = false;
+  }
+}
+
+// ───────────────────────── history ─────────────────────────
+
+const listName = (key) => LISTS.find((l) => l.key === key)?.label ?? key ?? 'a list';
+
+// One line of the history, as a sentence.
+function logLine(r) {
+  const place = r.place_name ?? 'A place';
+  const d = r.detail ?? {};
+  switch (r.action) {
+    case 'added': return `added ${place} to ${listName(r.list)} as a draft`;
+    case 'draft_removed': return `took the draft ${place} off ${listName(r.list)}`;
+    case 'removing': return `marked ${place} to leave ${listName(r.list)}`;
+    case 'kept': return `kept ${place} on ${listName(r.list)}`;
+    case 'went_live': return `published ${place} on ${listName(r.list)}`;
+    case 'went_off': return `published the removal of ${place} from ${listName(r.list)}`;
+    case 'removed': return `removed ${place} from ${listName(r.list)}`;
+    case 'reordered': return `re-ranked ${listName(r.list)}`;
+    case 'guide_created': return `started the guide "${d.title ?? ''}"`;
+    case 'guide_saved': return `saved the guide "${d.title ?? ''}" (${plural(Number(d.places ?? 0), 'place')}, ${d.visibility === 'public' ? 'public' : 'private'})`;
+    case 'guide_deleted': return `deleted the guide "${d.title ?? ''}"`;
+    default: return r.action;
+  }
+}
+
+function renderHistory() {
+  const box = $('history');
+  if (log === null) {
+    $('history-note').textContent = 'The history needs migration 067. Run it in Supabase and reload.';
+    box.replaceChildren();
+    return;
+  }
+  $('history-note').textContent = 'Every change to Bite\u2019s lists and guides, newest first. It starts from the day this was switched on.';
+  if (!log.length) {
+    box.replaceChildren(el('p', { class: 'empty', text: 'Nothing has changed yet.' }));
+    return;
+  }
+  box.replaceChildren(
+    ...log.map((r) =>
+      el('div', { class: 'log-row' }, [
+        el('span', {
+          class: 'log-when',
+          text: new Date(r.at).toLocaleString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }),
+        }),
+        el('span', {}, [
+          el('span', { class: 'log-who', text: r.actor ? `@${r.actor}` : 'The monthly schedule' }),
+          document.createTextNode(` ${logLine(r)}`),
+        ]),
+      ]),
+    ),
+  );
+}
+
+// ───────────────────────── sections ─────────────────────────
+
+function setTab(name) {
+  if (name === tab) return;
+  if (tab === 'guides' && draft?.dirty && !window.confirm('This guide has changes you have not saved. Leave them behind?')) return;
+  if (tab === 'guides' && draft?.dirty) draft = null;
+  tab = name;
+  for (const t of ['lists', 'guides', 'history']) {
+    $(`tab-${t}`).classList.toggle('on', t === tab);
+    $(`view-${t}`).hidden = t !== tab;
+  }
+  // The search panel is for adding places: no use on the History page.
+  document.querySelector('.find').hidden = tab === 'history';
+  $('search-note').textContent =
+    tab === 'guides'
+      ? 'Type to find places already on Bite. Press Enter to search every place in Singapore, with photos. Results go into the guide you have open.'
+      : 'Type to find places already on Bite. Press Enter to search every place in Singapore, with photos.';
+  renderGuidePicker();
+  if (tab === 'guides' && draft) renderGuideEditor();
+  renderResults();
+}
+
 // ───────────────────────── wiring ─────────────────────────
 
 let typing = null;
@@ -910,6 +1552,8 @@ async function enter() {
   } catch (e) {
     toast(explain(e), true);
   }
+  // Once a week, quietly: are the listed places still open?
+  checkClosed(false);
 }
 
 $('signin-form').addEventListener('submit', async (evt) => {
@@ -965,9 +1609,22 @@ $('search-form').addEventListener('submit', (evt) => {
   searchEverywhere();
 });
 
+for (const t of ['lists', 'guides', 'history']) $(`tab-${t}`).addEventListener('click', () => setTab(t));
+
+// Leaving the page with an unsaved guide asks first.
+window.addEventListener('beforeunload', (evt) => {
+  if (draft?.dirty) evt.preventDefault();
+});
+
 // A click on the dimmed page behind the panel closes it.
 $('panel').addEventListener('click', (evt) => {
   if (evt.target === $('panel')) $('panel').close();
+});
+$('preview').addEventListener('click', (evt) => {
+  if (evt.target === $('preview')) $('preview').close();
+});
+$('preview').addEventListener('close', () => {
+  previewOf = null;
 });
 $('panel').addEventListener('close', () => {
   panelPlace = null;

@@ -33,6 +33,17 @@ made-up places and saves nothing.
 - **What Bite is saying.** Most visited, top rated, most saved and
   rising places, from everyone on Bite. Totals only, never who.
 
+## The three sections
+
+- **Lists.** The four hand-picked lists, a Preview of each as the app
+  shows it, a warning when a listed place has closed, and Bite’s numbers.
+- **Guides.** Guides owned by the official Bite account: write, order,
+  add a note to each place, keep private or make public, delete.
+- **History.** Who changed what and when, on the website or in the app.
+
+The closed-place check asks Google about every listed place once a
+week, when the site is opened. It does not run on its own.
+
 ## Files
 
 | File | What it is |
@@ -53,8 +64,8 @@ the app. The generator refuses to write any other kind.
 
 ## The other half
 
-- Database: migrations 055, 056 and 065 in the `bite` repo
-  (`set_editor_pick`, `publish_editor_picks`, `set_editor_pick_order`).
+- Database: migrations 055, 056, 065, 066 and 067 in the `bite` repo.
+  Every function the site calls checks the caller is an admin.
 - Place search: the `hq-places` Edge Function in the `bite` repo. It
   holds the Google key as a server secret (`GOOGLE_PLACES_KEY`), so the
   key is never in this public repo.

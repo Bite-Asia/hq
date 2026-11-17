@@ -51,6 +51,11 @@
     <header class="top">
       <h1 class="brand">Bite <span>HQ</span></h1>
       <p id="demo-flag" class="flag" hidden>Demo. Nothing here is saved.</p>
+      <nav class="tabs" aria-label="Sections">
+        <button id="tab-lists" class="tab on" type="button">Lists</button>
+        <button id="tab-guides" class="tab" type="button">Guides</button>
+        <button id="tab-history" class="tab" type="button">History</button>
+      </nav>
       <div class="top-right">
         <p id="status" class="quiet"></p>
         <button id="publish" class="primary" type="button" disabled>Publish now</button>
@@ -73,10 +78,13 @@
         <div id="results"></div>
       </aside>
 
-      <div class="main">
+      <!-- Lists: the four hand-picked lists, and Bite's own numbers. -->
+      <div id="view-lists" class="main">
+        <div id="closed" class="closed" role="alert" hidden></div>
         <section aria-label="Bite's lists">
           <p class="quiet small rules">Drag a place to rank it. The order is live in the app as soon as you drop it. Adding and removing wait for Publish, or for the 1st of the month. Click a name for photos and numbers.</p>
           <div id="lists" class="list-grid"></div>
+          <p id="closed-note" class="quiet small check"></p>
         </section>
 
         <section class="insights" aria-label="What people on Bite are doing">
@@ -85,12 +93,35 @@
           <div id="insights" class="list-grid"></div>
         </section>
       </div>
+
+      <!-- Guides: the ones the official Bite account owns. -->
+      <div id="view-guides" class="main" hidden>
+        <section aria-label="Bite's guides">
+          <p id="guides-note" class="quiet small rules">Guides from the official Bite account. A private guide is a draft only you can see. A public one shows in the app as soon as you save it.</p>
+          <div id="guide-picker" class="guide-picker"></div>
+          <div id="guide-editor"></div>
+        </section>
+      </div>
+
+      <!-- History: who changed what, and when. -->
+      <div id="view-history" class="main" hidden>
+        <section class="card" aria-label="Change history">
+          <h2>History</h2>
+          <p id="history-note" class="quiet small">Every change to Bite's lists and guides, newest first.</p>
+          <div id="history"></div>
+        </section>
+      </div>
     </div>
   </div>
 
   <!-- One place, close up: photos, facts, Bite's numbers, its lists. -->
   <dialog id="panel" class="panel" aria-labelledby="panel-title">
     <div id="panel-body"></div>
+  </dialog>
+
+  <!-- A list as the app shows it, in a phone-shaped frame. -->
+  <dialog id="preview" class="panel preview" aria-label="Preview">
+    <div id="preview-body"></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
