@@ -6,8 +6,9 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="referrer" content="no-referrer">
   <!-- Only this site's own files, two pinned libraries from jsDelivr, the
-       brand font, and Bite's own Supabase project may load or be called. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://txmpfxvptrsxefzcpilj.supabase.co; base-uri 'none'; form-action 'none'">
+       brand font, Bite's own Supabase project, and photos from Google's
+       picture host may load or be called. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src https://txmpfxvptrsxefzcpilj.supabase.co; base-uri 'none'; form-action 'none'">
   <title>Bite HQ</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,6 +58,9 @@
       </div>
     </header>
 
+    <!-- The whole app in a few numbers. -->
+    <div id="totals" class="totals" hidden></div>
+
     <div class="layout">
       <aside class="find card">
         <h2>Add a place</h2>
@@ -65,16 +69,29 @@
           <input id="search" type="search" placeholder="Burnt Ends, Apartment Coffee" autocomplete="off">
           <button id="search-all" class="plain" type="submit">Search all of Singapore</button>
         </form>
-        <p id="search-note" class="quiet small">Type to find places already on Bite. Press Enter to search every place in Singapore.</p>
+        <p id="search-note" class="quiet small">Type to find places already on Bite. Press Enter to search every place in Singapore, with photos.</p>
         <div id="results"></div>
       </aside>
 
-      <section class="lists" aria-label="Bite's lists">
-        <p class="quiet small rules">Drag a place to rank it. The order is live in the app as soon as you drop it. Adding and removing wait for Publish, or for the 1st of the month.</p>
-        <div id="lists" class="list-grid"></div>
-      </section>
+      <div class="main">
+        <section aria-label="Bite's lists">
+          <p class="quiet small rules">Drag a place to rank it. The order is live in the app as soon as you drop it. Adding and removing wait for Publish, or for the 1st of the month. Click a name for photos and numbers.</p>
+          <div id="lists" class="list-grid"></div>
+        </section>
+
+        <section class="insights" aria-label="What people on Bite are doing">
+          <h2>What Bite is saying</h2>
+          <p id="insights-note" class="quiet small">Places people on Bite are visiting, scoring and saving. Totals only, never who.</p>
+          <div id="insights" class="list-grid"></div>
+        </section>
+      </div>
     </div>
   </div>
+
+  <!-- One place, close up: photos, facts, Bite's numbers, its lists. -->
+  <dialog id="panel" class="panel" aria-labelledby="panel-title">
+    <div id="panel-body"></div>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 

@@ -26,6 +26,12 @@ made-up places and saves nothing.
   from @bite, and the monthly clock restarts.
 - **Search** finds places already on Bite as you type. Press Enter to
   search every place in Singapore.
+- **Checking a place.** A search result shows a photo, what Google
+  calls it, its Google rating, and whether it has closed. Click a name
+  or a photo for the close-up: six photos, a link to Google Maps, and
+  what people on Bite have done there.
+- **What Bite is saying.** Most visited, top rated, most saved and
+  rising places, from everyone on Bite. Totals only, never who.
 
 ## Files
 
