@@ -24,7 +24,7 @@
   <!-- Sign in. -->
   <main id="signin" class="centre" hidden>
     <form id="signin-form" class="card signin" autocomplete="on">
-      <h1 class="brand">Bite <span>HQ</span></h1>
+      <h1 class="brand"><img src="logo-espresso.svg" alt="">Bite <span>HQ</span></h1>
       <p class="quiet">For the Bite team. Sign in with an admin account, the same way you sign in to the app.</p>
       <button id="google" class="plain wide" type="button">Continue with Google</button>
       <p class="or"><span>or with a password</span></p>
@@ -40,7 +40,7 @@
   <!-- Signed in, but not an admin. -->
   <main id="denied" class="centre" hidden>
     <div class="card signin">
-      <h1 class="brand">Bite <span>HQ</span></h1>
+      <h1 class="brand"><img src="logo-espresso.svg" alt="">Bite <span>HQ</span></h1>
       <p>This account is not an admin, so there is nothing here for it.</p>
       <button id="denied-signout" class="plain" type="button">Sign out</button>
     </div>
@@ -49,7 +49,7 @@
   <!-- The editor. -->
   <div id="app" hidden>
     <header class="top">
-      <h1 class="brand">Bite <span>HQ</span></h1>
+      <h1 class="brand"><img src="logo-lime.svg" alt="">Bite <span>HQ</span></h1>
       <p id="demo-flag" class="flag" hidden>Demo. Nothing here is saved.</p>
       <nav class="tabs" aria-label="Sections">
         <button id="tab-lists" class="tab on" type="button">Lists</button>
@@ -63,8 +63,14 @@
       </div>
     </header>
 
-    <!-- The whole app in a few numbers. -->
-    <div id="totals" class="totals" hidden></div>
+    <!-- Hello, and the whole app in a few numbers. -->
+    <section class="hero" aria-label="Overview">
+      <div>
+        <h2 id="hello" class="hello"></h2>
+        <p id="hello-sub" class="hello-sub"></p>
+      </div>
+      <div id="totals" class="totals" hidden></div>
+    </section>
 
     <div class="layout">
       <aside class="find card">

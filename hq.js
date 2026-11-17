@@ -155,6 +155,13 @@ function liveApi() {
     async isAdmin() {
       return must(await db.rpc('is_admin')) === true;
     },
+    // The first name of whoever is signed in, for the greeting.
+    async myName() {
+      const user = (await db.auth.getSession()).data.session?.user;
+      if (!user) return '';
+      const { data } = await db.from('profiles').select('display_name, username').eq('id', user.id).maybeSingle();
+      return (data?.display_name || data?.username || '').trim().split(/\s+/)[0] ?? '';
+    },
     async status() {
       return must(await db.rpc('editor_picks_status')) ?? {};
     },
@@ -323,6 +330,9 @@ function demoApi() {
     async isAdmin() {
       return true;
     },
+    async myName() {
+      return 'Arnold';
+    },
     async status() {
       const next = new Date();
       next.setMonth(next.getMonth() + 1, 1);
@@ -472,7 +482,67 @@ let checkFailed = ''; // why the last check did not finish
 let guides = null; // Bite's guides; null = not available yet
 let draft = null; // the guide open in the editor
 let log = null; // the change history; null = not available yet
-const thumbs = new Map(); // small photos by Google place id, for previews
+const thumbs = new Map(); // small photos by Google place id, for rows and previews
+const THUMBS_KEY = 'bite-hq-thumbs';
+const THUMBS_FOR = 6 * 3600 * 1000; // Google's picture links do not last; six hours is safe
+try {
+  if (!DEMO) {
+    for (const [id, v] of Object.entries(JSON.parse(localStorage.getItem(THUMBS_KEY) ?? '{}'))) {
+      if (v && Date.now() - v.t < THUMBS_FOR) thumbs.set(id, v.u);
+    }
+  }
+} catch {
+  // A full or blocked store only means the photos are fetched again.
+}
+const thumbTimes = new Map();
+function keepThumbs() {
+  if (DEMO) return;
+  try {
+    const out = {};
+    for (const [id, u] of thumbs) out[id] = { u, t: thumbTimes.get(id) ?? Date.now() };
+    localStorage.setItem(THUMBS_KEY, JSON.stringify(out));
+  } catch {
+    // Nothing lost: they are in memory for this visit.
+  }
+}
+// Fetches small photos for places that do not have one yet. Answers true
+// if any arrived, so the caller knows to draw again.
+async function ensureThumbs(placeIds) {
+  const need = [...new Set(placeIds.filter((id) => id && !thumbs.has(id)))];
+  let got = false;
+  for (let i = 0; i < need.length; i += 40) {
+    const res = await api.thumbs(need.slice(i, i + 40)).catch(() => ({ ok: false }));
+    if (!res.ok) break;
+    for (const p of res.places) {
+      thumbs.set(p.place_id, p.photo ?? '');
+      thumbTimes.set(p.place_id, Date.now());
+    }
+    got = true;
+  }
+  if (got) keepThumbs();
+  return got;
+}
+// A place's photo, or a block with its first letter until one arrives.
+function thumbFor(place, cls) {
+  const src = thumbs.get(place.place_id);
+  if (!src) return el('div', { class: cls, text: (place.name ?? '?').trim().charAt(0).toUpperCase(), 'aria-hidden': 'true' });
+  return el('img', {
+    class: cls,
+    src,
+    alt: '',
+    loading: 'lazy',
+    referrerpolicy: 'no-referrer',
+    draggable: 'false',
+    on: {
+      // The link has gone stale: forget it, so the next visit asks again.
+      error: (evt) => {
+        thumbs.delete(place.place_id);
+        keepThumbs();
+        evt.target.replaceWith(el('div', { class: cls, text: (place.name ?? '?').trim().charAt(0).toUpperCase() }));
+      },
+    },
+  });
+}
 
 const rowsOf = (list) => picks.filter((p) => p.list === list && p.restaurant);
 const pickOf = (list, id) => picks.find((p) => p.list === list && p.restaurant_id === id);
@@ -499,6 +569,10 @@ async function refresh() {
   renderHistory();
   if ($('panel').open && panelPlace) renderPanel();
   if ($('preview').open) renderPreview();
+  // Photos for the places on the lists, then draw the lists again.
+  ensureThumbs(picks.map((p) => p.restaurant?.place_id)).then((got) => {
+    if (got && !document.querySelector('.sortable-chosen')) renderLists();
+  });
 }
 
 // Runs one change, then reads everything back from the database, so the
@@ -555,7 +629,7 @@ function renderTotals() {
     el('div', { class: 'total' }, [
       el('b', { text: Number(n ?? 0).toLocaleString('en-SG') }),
       el('span', { text: label }),
-      week ? el('em', { text: `+${Number(week).toLocaleString('en-SG')} this week` }) : null,
+      week != null ? el('em', { text: week ? `+${Number(week).toLocaleString('en-SG')} this week` : 'none this week' }) : null,
     ]);
   box.replaceChildren(
     one(totals.accounts, 'accounts', totals.accounts_week),
@@ -621,18 +695,22 @@ function renderLists() {
           note = `${left > 0 ? `${left} day${left === 1 ? '' : 's'} left` : 'No longer shown'}${note ? ` · ${note}` : ''}`;
         }
         const numbers = statsLine(statsById.get(r.restaurant_id));
+        const shut = CLOSED[statusById.get(r.restaurant_id)?.status];
         items.push(
           el('li', { class: `row${leaving ? ' removing' : ''}${beyond ? ' beyond' : ''}`, data: { id: r.restaurant_id } }, [
-            el('span', { class: 'rank', text: leaving ? '' : String(rank) }),
+            el('span', { class: `rank${!leaving && rank <= 3 ? ' lead' : ''}`, text: leaving ? '' : String(rank) }),
+            thumbFor(r.restaurant, 'row-thumb'),
             el('div', {}, [
               nameButton(r.restaurant, 'row-name'),
               note ? el('div', { class: 'row-meta', text: note }) : null,
               numbers ? el('div', { class: 'row-stats', text: numbers }) : null,
+              el('div', { class: 'row-badges' }, [
+                shut ? el('span', { class: 'badge shut', text: shut }) : null,
+                r.pending === 'add' ? el('span', { class: 'badge add', text: 'Draft' }) : null,
+                leaving ? el('span', { class: 'badge remove', text: 'Removing' }) : null,
+              ]),
             ]),
             el('div', { class: 'row-side' }, [
-              CLOSED[statusById.get(r.restaurant_id)?.status] ? el('span', { class: 'badge shut', text: CLOSED[statusById.get(r.restaurant_id).status] }) : null,
-              r.pending === 'add' ? el('span', { class: 'badge add', text: 'Draft' }) : null,
-              leaving ? el('span', { class: 'badge remove', text: 'Removing' }) : null,
               el('button', {
                 class: 'icon',
                 type: 'button',
@@ -665,12 +743,21 @@ function renderLists() {
         },
       });
 
+      // The colours of this list's own page in the app.
+      const page = PAGES[list.key];
+      const head = el('div', { class: 'list-head' }, [
+        el('div', {}, [el('h3', { text: list.label }), el('p', { class: 'list-count', text: count })]),
+        el('button', { class: 'icon', type: 'button', text: 'Preview', title: 'See it as the app shows it', on: { click: () => openPreview(list) } }),
+      ]);
+      if (page) {
+        head.style.background = page.plate;
+        head.style.color = page.on;
+      }
       return el('section', { class: 'card list' }, [
-        el('div', { class: 'list-head' }, [
-          el('div', {}, [el('h3', { text: list.label }), el('p', { class: 'list-count', text: count })]),
-          el('button', { class: 'icon', type: 'button', text: 'Preview', title: 'See it as the app shows it', on: { click: () => openPreview(list) } }),
+        head,
+        el('div', { class: 'list-body' }, [
+          rows.length ? ol : el('p', { class: 'empty', text: 'Nothing here yet. Search on the left and add a place.' }),
         ]),
-        rows.length ? ol : el('p', { class: 'empty', text: 'Nothing here yet. Search on the left and add a place.' }),
       ]);
     }),
   );
@@ -795,6 +882,7 @@ function renderInsights() {
       empty: 'No visits logged yet.',
       rows: top(stats.filter((s) => s.visits > 0).sort((a, b) => b.visits - a.visits)),
       stat: (s) => plural(s.visits, 'visit'),
+      size: (s) => s.visits,
     },
     {
       title: 'Top rated',
@@ -802,12 +890,14 @@ function renderInsights() {
       rows: top(stats.filter((s) => s.visits >= 2 && s.avg_score != null).sort((a, b) => b.avg_score - a.avg_score || b.visits - a.visits)),
       stat: (s) => Number(s.avg_score).toFixed(1),
       sub: (s) => `from ${plural(s.visits, 'visit')}`,
+      size: (s) => Number(s.avg_score),
     },
     {
       title: 'Most saved',
       empty: 'Nobody has saved a place yet.',
       rows: top(stats.filter((s) => s.saves > 0).sort((a, b) => b.saves - a.saves)),
       stat: (s) => plural(s.saves, 'save'),
+      size: (s) => s.saves,
     },
     {
       title: 'Rising, last 14 days',
@@ -819,24 +909,35 @@ function renderInsights() {
       ),
       stat: (s) => `+${s.visits_recent + s.saves_recent}`,
       sub: (s) => [s.visits_recent ? plural(s.visits_recent, 'visit') : null, s.saves_recent ? plural(s.saves_recent, 'save') : null].filter(Boolean).join(', '),
+      size: (s) => s.visits_recent + s.saves_recent,
     },
   ];
   box.replaceChildren(
-    ...boards.map((b) =>
-      el('section', { class: 'card list' }, [
+    ...boards.map((b) => {
+      // The longest bar belongs to the first line; the rest are measured against it.
+      const size = b.size ?? ((s) => 0);
+      const most = Math.max(1, ...b.rows.map(size));
+      return el('section', { class: 'card list' }, [
         el('div', { class: 'list-head' }, [el('h3', { text: b.title })]),
-        ...(b.rows.length
-          ? b.rows.map((s) => {
-              const on = listsOf(s.id);
-              const sub = [b.sub ? b.sub(s) : null, on.length ? `on ${on.join(', ')}` : 'on no list'].filter(Boolean).join(' · ');
-              return el('div', { class: 'insight-row' }, [
-                el('div', {}, [nameButton(s, 'row-name'), el('div', { class: 'insight-sub', text: sub })]),
-                el('span', { class: 'insight-stat', text: b.stat(s) }),
-              ]);
-            })
-          : [el('p', { class: 'empty', text: b.empty })]),
-      ]),
-    ),
+        el(
+          'div',
+          { class: 'list-body' },
+          b.rows.length
+            ? b.rows.map((s) => {
+                const on = listsOf(s.id);
+                const sub = [b.sub ? b.sub(s) : null, on.length ? `on ${on.join(', ')}` : 'on no list'].filter(Boolean).join(' · ');
+                const bar = el('div', { class: 'insight-bar' });
+                bar.style.width = `${Math.max(6, Math.round((size(s) / most) * 100))}%`;
+                return el('div', { class: 'insight-row' }, [
+                  bar,
+                  el('div', {}, [nameButton(s, 'row-name'), el('div', { class: 'insight-sub', text: sub })]),
+                  el('span', { class: 'insight-stat', text: b.stat(s) }),
+                ]);
+              })
+            : [el('p', { class: 'empty', text: b.empty })],
+        ),
+      ]);
+    }),
   );
 }
 
@@ -1015,7 +1116,7 @@ function renderClosed() {
         : checkFailed
           ? `The check for closed places did not finish: ${checkFailed} `
           : last
-            ? `Listed places checked with Google on ${last}. Checked again every week when Bite HQ is open. `
+            ? `Listed places checked with Google on ${last}. Checked again every Monday by itself, with an email to you if one has closed. `
             : 'Listed places have not been checked with Google yet. ',
     ),
     checking ? '' : el('button', { class: 'link', type: 'button', text: 'Check now', on: { click: () => checkClosed(true) } }),
@@ -1526,6 +1627,23 @@ async function searchEverywhere() {
   }
 }
 
+// A greeting by the clock, and a line to get going on.
+async function greet() {
+  const hour = new Date().getHours();
+  const part = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const lines = [
+    'Somebody has to decide what is good. Today it is you.',
+    'Singapore is hungry. What deserves a spot?',
+    'Fewer, better places. That is the whole job.',
+    'What would you send a friend to this week?',
+    'Rank it like your reputation depends on it.',
+  ];
+  $('hello').textContent = `${part}.`;
+  $('hello-sub').textContent = lines[new Date().getDate() % lines.length];
+  const name = await api.myName().catch(() => '');
+  if (name) $('hello').textContent = `${part}, ${name}.`;
+}
+
 async function enter() {
   const user = await api.user();
   if (!user) {
@@ -1547,6 +1665,7 @@ async function enter() {
   }
   $('demo-flag').hidden = !DEMO;
   show('app');
+  greet();
   try {
     await refresh();
   } catch (e) {
