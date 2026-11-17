@@ -63,6 +63,7 @@ function explain(error) {
   if (/not allowed/i.test(m)) return 'This account is not allowed to do that.';
   if (/Failed to fetch|NetworkError|network/i.test(m)) return 'No connection. Check the internet and try again.';
   if (/Invalid login credentials/i.test(m)) return 'That email and password do not match.';
+  if (/redirect|requested path is invalid/i.test(m)) return 'Google sign-in is not allowed to come back to this address yet. It needs adding in Supabase.';
   return m || 'Something went wrong.';
 }
 
@@ -86,6 +87,12 @@ function liveApi() {
     },
     async signIn(email, password) {
       must(await db.auth.signInWithPassword({ email, password }));
+    },
+    // Off to Google and back to this page, the same route the app takes.
+    // The address must be on Supabase's list of allowed return addresses
+    // (Authentication > URL Configuration > Redirect URLs).
+    async signInWithGoogle() {
+      must(await db.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } }));
     },
     async signOut() {
       await db.auth.signOut();
@@ -195,6 +202,7 @@ function demoApi() {
       return { email: 'demo@bite' };
     },
     async signIn() {},
+    async signInWithGoogle() {},
     async signOut() {},
     async isAdmin() {
       return true;
@@ -565,6 +573,22 @@ $('signin-form').addEventListener('submit', async (evt) => {
   }
 });
 
+$('google').addEventListener('click', async () => {
+  const button = $('google');
+  $('signin-error').hidden = true;
+  button.disabled = true;
+  button.textContent = 'Opening Google…';
+  try {
+    await api.signInWithGoogle();
+    // The page is leaving for Google now; nothing more to do here.
+  } catch (e) {
+    $('signin-error').textContent = explain(e);
+    $('signin-error').hidden = false;
+    button.disabled = false;
+    button.textContent = 'Continue with Google';
+  }
+});
+
 for (const id of ['signout', 'denied-signout']) {
   $(id).addEventListener('click', async () => {
     await api.signOut();
@@ -597,6 +621,18 @@ $('publish').addEventListener('click', () => {
     toast(`${n} change${n === 1 ? '' : 's'} published`);
   });
 });
+
+// Back from Google with a refusal: it arrives in the address. Say it
+// plainly, then tidy the address so a reload does not repeat it.
+{
+  const back = new URLSearchParams(location.hash.replace(/^#/, '') || location.search);
+  const why = back.get('error_description') || back.get('error');
+  if (why) {
+    $('signin-error').textContent = `Google sign-in did not finish: ${why.replace(/\+/g, ' ')}`;
+    $('signin-error').hidden = false;
+    history.replaceState(null, '', location.pathname);
+  }
+}
 
 enter().catch((e) => {
   $('signin-error').textContent = explain(e);
