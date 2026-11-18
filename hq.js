@@ -439,7 +439,7 @@ function demoApi() {
           ],
         },
         posthog: {
-          connected: true, sessions: 1240, people: 96, avg_seconds: 250, url: 'https://us.posthog.com',
+          connected: true, sessions: 1240, people: 131, signed_in: 96, avg_seconds: 250, url: 'https://us.posthog.com',
           devices: [{ name: 'iPhone 15 Pro', n: 31 }, { name: 'iPhone 13', n: 22 }, { name: 'iPhone 16', n: 18 }],
           systems: [{ name: 'iOS 18.1', n: 61 }, { name: 'iOS 17.6', n: 20 }],
         },

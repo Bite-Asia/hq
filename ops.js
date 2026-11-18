@@ -240,10 +240,12 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     const kv = (k, v) => el('div', { class: 'kv' }, [el('span', { text: k }), el('b', { text: v })]);
     return el('section', { class: 'card' }, [
       ...head,
-      el('p', { class: 'quiet small', text: 'The last 7 days.' }),
+      el('p', { class: 'quiet small', text: 'The last 7 days. Counts test builds and phones that opened Bite without signing in, so it runs higher than your member count.' }),
       el('div', { class: 'kvs' }, [
         kv('Sessions', num(p.sessions)),
-        kv('People', num(p.people)),
+        ...(p.signed_in == null
+          ? [kv('People and Phones', num(p.people))]
+          : [kv('Signed-In People', num(p.signed_in)), kv('Phones Not Signed In', num(Math.max(0, p.people - p.signed_in)))]),
         kv('Typical Session', length),
         ...(p.devices ?? []).slice(0, 3).map((d) => kv(d.name, plural(d.n, 'person', 'people'))),
         ...(p.systems ?? []).slice(0, 2).map((d) => kv(d.name, plural(d.n, 'person', 'people'))),
