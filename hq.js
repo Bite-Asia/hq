@@ -271,8 +271,10 @@ function liveApi() {
       return error ? null : data ?? null;
     },
     // Sentry and PostHog, through the function that holds their keys.
-    async signals() {
-      const { data, error } = await db.functions.invoke('hq-signals', { body: {} });
+    // The member ids go along so PostHog's people can be split into
+    // signed in and not.
+    async signals(members = []) {
+      const { data, error } = await db.functions.invoke('hq-signals', { body: { members } });
       return error ? null : data ?? null;
     },
     async resolveBug(fingerprint, status) {

@@ -591,7 +591,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     renderTiles();
     renderAll();
     // Sentry and PostHog answer more slowly: fill them in when they do.
-    api.signals().then((s) => {
+    api.signals((people ?? []).map((p) => p.id)).then((s) => {
       signals = s?.ok ? s : { sentry: { connected: false }, posthog: { connected: false } };
       renderPulse();
       renderHealth();
