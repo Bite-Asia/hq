@@ -342,7 +342,12 @@ textarea:focus { outline: none; border-color: var(--olive); box-shadow: 0 0 0 4p
 .ops-two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .ops-two.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ops-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
-@media (max-width: 1000px) { .ops-two, .ops-two.even, .ops-three { grid-template-columns: minmax(0, 1fr); } }
+/* A laptop window: the screens card takes a row of its own, so its bars have room. */
+@media (max-width: 1240px) {
+  .ops-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-three > :first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 860px) { .ops-two, .ops-two.even, .ops-three { grid-template-columns: minmax(0, 1fr); } }
 .ops .card { padding: 20px 22px; animation: rise 0.3s ease-out both; }
 .ops .card > h2 + .quiet { margin-top: 2px; }
 .rule { height: 1px; background: var(--line); margin: 18px 0 16px; }
@@ -354,7 +359,7 @@ textarea:focus { outline: none; border-color: var(--olive); box-shadow: 0 0 0 4p
 .total.hot em { background: rgba(255, 255, 255, 0.2) !important; color: #fff !important; }
 
 /* Where a card's numbers come from, when it is not Bite's own database. */
-.source { float: right; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
+.source { display: block; width: fit-content; margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
 .source.sentry { background: #E6DDF5; color: #4B2E83; }
 .source.posthog { background: #FFE9C7; color: #8A5200; }
 
@@ -377,7 +382,7 @@ textarea:focus { outline: none; border-color: var(--olive); box-shadow: 0 0 0 4p
 
 /* A label, a bar, a number. */
 .meters { margin-top: 14px; display: grid; gap: 9px; }
-.meter { display: grid; grid-template-columns: minmax(110px, 190px) minmax(0, 1fr) 48px; gap: 10px; align-items: center; font-size: 14px; }
+.meter { display: grid; grid-template-columns: minmax(0, 190px) minmax(60px, 1fr) 48px; gap: 10px; align-items: center; font-size: 14px; }
 .meter-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meter-track { height: 14px; border-radius: 7px; background: var(--band); overflow: hidden; }
 .meter-fill { height: 100%; border-radius: 7px; background: var(--lime); }

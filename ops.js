@@ -153,10 +153,22 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
 
   const source = (name, cls) => el('span', { class: `source ${cls}`, text: `From ${name}` });
 
-  function notConnected(name, secret) {
+  // What is missing, by name, as the server sees it.
+  function notConnected(name, wanted) {
+    const seen = signals?.secrets;
+    const missing = seen ? wanted.filter((n) => !seen.has?.[n]) : wanted;
+    const near = seen?.near ?? [];
     return [
       el('p', { class: 'quiet', text: `${name} is not connected yet.` }),
-      el('p', { class: 'quiet small', text: `It needs a key only you can create. Add ${secret} in Supabase, under Edge Functions, Secrets. Ask Claude for the steps.` }),
+      el('p', {
+        class: 'quiet small',
+        text: seen && !missing.length
+          ? 'The secrets are there, but one is not in the shape it should be. POSTHOG_PROJECT must be the project number, digits only.'
+          : seen
+          ? `The server cannot see ${missing.join(' or ')}. Add ${missing.length === 1 ? 'it' : 'them'} in Supabase, under Edge Functions, Secrets, spelt exactly like that.`
+          : `It needs a key only you can create. Add ${wanted.join(' and ')} in Supabase, under Edge Functions, Secrets.`,
+      }),
+      near.length ? el('p', { class: 'error small', text: `It can see ${near.join(', ')}, which is not a name it looks for. Rename it.` }) : null,
     ];
   }
 
@@ -183,7 +195,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     const s = signals?.sentry;
     const head = [source('Sentry', 'sentry'), el('h2', { text: 'Crashes' })];
     if (signals === undefined) return el('section', { class: 'card' }, [...head, loading()]);
-    if (!s || !s.connected) return el('section', { class: 'card' }, [...head, ...notConnected('Sentry', 'SENTRY_TOKEN')]);
+    if (!s || !s.connected) return el('section', { class: 'card' }, [...head, ...notConnected('Sentry', ['SENTRY_TOKEN'])]);
     if (s.error) return el('section', { class: 'card' }, [...head, el('p', { class: 'error', text: s.error })]);
     const issues = s.issues ?? [];
     const shown = full ? issues : issues.slice(0, 3);
@@ -221,7 +233,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     const p = signals?.posthog;
     const head = [source('PostHog', 'posthog'), el('h2', { text: 'Sessions and Phones' })];
     if (signals === undefined) return el('section', { class: 'card' }, [...head, loading()]);
-    if (!p || !p.connected) return el('section', { class: 'card' }, [...head, ...notConnected('PostHog', 'POSTHOG_KEY and POSTHOG_PROJECT')]);
+    if (!p || !p.connected) return el('section', { class: 'card' }, [...head, ...notConnected('PostHog', ['POSTHOG_KEY', 'POSTHOG_PROJECT'])]);
     if (p.error) return el('section', { class: 'card' }, [...head, el('p', { class: 'error', text: p.error })]);
     const secs = p.avg_seconds;
     const length = secs == null ? 'No data' : secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60} s` : `${secs} s`;
@@ -578,7 +590,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     renderAll();
     // Sentry and PostHog answer more slowly: fill them in when they do.
     api.signals().then((s) => {
-      signals = s ?? { sentry: { connected: false }, posthog: { connected: false } };
+      signals = s?.ok ? s : { sentry: { connected: false }, posthog: { connected: false } };
       renderPulse();
       renderHealth();
     });
