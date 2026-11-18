@@ -48,14 +48,18 @@
     </div>
   </main>
 
-  <!-- The editor. -->
+  <!-- Bite HQ itself: the operations pages and the editor. -->
   <div id="app" hidden>
     <header class="top">
       <h1 class="brand"><img src="logo-lime.svg" alt="">Bite <span>HQ</span></h1>
       <p id="demo-flag" class="flag" hidden>Demo. Nothing here is saved.</p>
       <nav class="tabs" aria-label="Sections">
-        <button id="tab-lists" class="tab on" type="button">Lists</button>
+        <button id="tab-pulse" class="tab on" type="button">Pulse</button>
+        <button id="tab-people" class="tab" type="button">People</button>
+        <button id="tab-lists" class="tab" type="button">Lists</button>
         <button id="tab-guides" class="tab" type="button">Guides</button>
+        <button id="tab-health" class="tab" type="button">Health</button>
+        <button id="tab-inbox" class="tab" type="button">Inbox</button>
         <button id="tab-history" class="tab" type="button">History</button>
       </nav>
       <div class="top-right">
@@ -74,8 +78,20 @@
       <div id="totals" class="totals" hidden></div>
     </section>
 
-    <div class="layout">
-      <aside class="find card">
+    <div class="layout wide">
+      <!-- Pulse: where Bite stands, and what to do about it. -->
+      <div id="view-pulse" class="main ops"></div>
+
+      <!-- People: every member, in counts and dates. -->
+      <div id="view-people" class="main ops" hidden></div>
+
+      <!-- Health: bugs, crashes, and who has the latest update. -->
+      <div id="view-health" class="main ops" hidden></div>
+
+      <!-- Inbox: reports and feature requests. -->
+      <div id="view-inbox" class="main ops" hidden></div>
+
+      <aside class="find card" hidden>
         <h2>Add a place</h2>
         <form id="search-form">
           <label for="search" class="sr">Search for a place</label>
@@ -87,7 +103,7 @@
       </aside>
 
       <!-- Lists: the four hand-picked lists, and Bite's own numbers. -->
-      <div id="view-lists" class="main">
+      <div id="view-lists" class="main" hidden>
         <div id="closed" class="closed" role="alert" hidden></div>
         <section aria-label="Bite's lists">
           <p class="quiet small rules">Drag a place to rank it. The order is live in the app as soon as you drop it. Adding and removing wait for Publish, or for the 1st of the month. Click a name for photos and numbers.</p>

@@ -14,6 +14,7 @@ import Sortable from 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/+esm';
 import { SUPABASE_URL, SUPABASE_KEY, LISTS, NEWLY_OPENED_DAYS, TOP25_SHOWN } from './config.js';
 import { classify, cuisineLabel } from './tags-cuisines.js';
 import { areaFromAddress, areaLabel } from './tags-areas.js';
+import { initOps } from './ops.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const DAY = 86400000;
@@ -251,6 +252,38 @@ function liveApi() {
     async publish() {
       return must(await db.rpc('publish_editor_picks'));
     },
+    // The operations pages (migration 072). The four that read answer
+    // null when the database does not have them yet.
+    async pulse() {
+      const { data, error } = await db.rpc('hq_pulse');
+      return error ? null : data ?? null;
+    },
+    async people() {
+      const { data, error } = await db.rpc('hq_people');
+      return error ? null : data ?? [];
+    },
+    async inbox() {
+      const { data, error } = await db.rpc('hq_inbox');
+      return error ? null : data ?? null;
+    },
+    async bugs() {
+      const { data, error } = await db.rpc('admin_errors');
+      return error ? null : data ?? null;
+    },
+    // Sentry and PostHog, through the function that holds their keys.
+    async signals() {
+      const { data, error } = await db.functions.invoke('hq-signals', { body: {} });
+      return error ? null : data ?? null;
+    },
+    async resolveBug(fingerprint, status) {
+      must(await db.rpc('admin_resolve_error', { p_fingerprint: fingerprint, p_status: status }));
+    },
+    async resolveReport(id, action) {
+      must(await db.rpc('admin_resolve_report', { p_report: id, p_action: action }));
+    },
+    async requestStatus(id, status) {
+      must(await db.rpc('hq_request_status', { p_id: id, p_status: status }));
+    },
   };
 }
 
@@ -320,7 +353,112 @@ function demoApi() {
       })),
     },
   ];
+  // The operations pages, with invented members.
+  const person = (n, name, joined, seen, days, visits, saves, guides, followers, update, recent) => ({
+    id: `member-${n}`, username: name.toLowerCase().replace(/[^a-z]/g, ''), display_name: name, is_admin: n === 1, is_private: n % 3 === 0,
+    joined: ago(joined), setup: n !== 7, last_seen: seen == null ? null : ago(seen), days_14: days,
+    visits, saves, guides, followers, following: followers + 2,
+    recent: recent.map(([what, d]) => ({ name: what, at: ago(d) })),
+    running: seen == null ? null : {
+      update: update ? `update-${update}` : null, update_at: update ? ago(update) : null, build: '2', version: '1.0.0',
+      device: ['iPhone 15 Pro', 'iPhone 13', 'iPhone 16', 'iPhone 14'][n % 4], os: `ios 18.${n % 4}`, at: ago(seen),
+    },
+  });
+  const members = [
+    person(1, 'Arnold', 100, 0.02, 12, 14, 22, 4, 9, 0.4, [['rank', 0.1], ['playlist_create', 2]]),
+    person(2, 'Mei Ling', 20, 0.2, 9, 8, 15, 1, 5, 0.4, [['rank', 0.2], ['wishlist_save', 0.3], ['feature_vote', 1]]),
+    person(3, 'Arjun', 12, 1, 6, 3, 9, 0, 3, 0.4, [['wishlist_save', 1], ['rank', 4]]),
+    person(4, 'Sam', 2, 0.5, 2, 0, 4, 0, 1, 3, [['wishlist_save', 0.5], ['onboarding_complete', 2]]),
+    person(5, 'Hannah', 1, 0.8, 1, 1, 0, 0, 0, 0.4, [['rank', 0.8], ['signup', 1]]),
+    person(6, 'Wei Jie', 30, 9, 0, 2, 6, 1, 2, 12, [['rank', 9], ['import_list', 20]]),
+    person(7, 'Priya', 8, 6, 1, 0, 0, 0, 0, 3, []),
+    person(8, 'Daniel', 16, 12, 0, 0, 1, 0, 1, null, [['wishlist_save', 13]]),
+    person(9, 'Nurul', 5, null, 0, 0, 0, 0, 0, null, []),
+  ];
+  let bugRows = [
+    { fingerprint: 'bug-1', kind: 'request', title: '403 GET profiles: permission denied for table profiles', status: 'open', note: null, fixed_in: null, count: 6, count_7d: 6, users: 3, first_seen: ago(3), last_seen: ago(0.3), reopened_at: null,
+      sample: { message: '403 GET profiles: permission denied for table profiles', stack: 'at fetchProfile (lib/profiles.ts:41)\nat FeedScreen (app/(tabs)/feed.tsx:212)', screen: '/feed', app_version: '1.0.0', platform: 'ios', os_version: '18.1', device: 'iPhone 15 Pro', created_at: ago(0.3) } },
+    { fingerprint: 'bug-2', kind: 'render', title: 'Cannot read property ‘length’ of undefined', status: 'open', note: null, fixed_in: null, count: 2, count_7d: 2, users: 1, first_seen: ago(1), last_seen: ago(1), reopened_at: ago(1),
+      sample: { message: 'Cannot read property ‘length’ of undefined', stack: 'at GuideRow (components/GuideRow.tsx:58)', screen: '/playlist/:id', app_version: '1.0.0', platform: 'ios', os_version: '17.6', device: 'iPhone 13', created_at: ago(1) } },
+    { fingerprint: 'bug-3', kind: 'request', title: '409 POST entries: duplicate key value violates unique constraint', status: 'fixed', note: 'Double tap on Save', fixed_in: '1.0.0', count: 4, count_7d: 0, users: 2, first_seen: ago(30), last_seen: ago(21), reopened_at: null,
+      sample: { message: '409 POST entries: duplicate key', stack: null, screen: '/add', app_version: '1.0.0', platform: 'ios', os_version: '18.0', device: 'iPhone 14', created_at: ago(21) } },
+  ];
+  let reportRows = [
+    { id: 'report-1', target_type: 'comment', target_id: 'c1', target_user_id: 'member-8', reason: 'spam', details: null, status: 'open', created_at: ago(0.4), reporter: 'Mei Ling', target_name: 'Daniel', target_username: 'daniel', preview: 'Cheap followers, link in my profile!!', against_user: 2 },
+    { id: 'report-2', target_type: 'post', target_id: 'p1', target_user_id: 'member-6', reason: 'false_info', details: 'This place closed last year.', status: 'open', created_at: ago(2), reporter: 'Arjun', target_name: 'Wei Jie', target_username: 'weijie', preview: 'Best prata in town, open till 3am.', against_user: 1 },
+  ];
+  let requestRows = [
+    { id: 'ask-1', title: 'Let me share a guide to WhatsApp', status: 'open', created_at: ago(3), username: 'meiling', display_name: 'Mei Ling', votes: 7 },
+    { id: 'ask-2', title: 'A map of everywhere I have saved', status: 'planned', created_at: ago(9), username: 'arjun', display_name: 'Arjun', votes: 5 },
+    { id: 'ask-3', title: 'Halal filter on Explore', status: 'open', created_at: ago(1), username: 'nurul', display_name: 'Nurul', votes: 3 },
+    { id: 'ask-4', title: 'Dark mode', status: 'shipped', created_at: ago(40), username: 'sam', display_name: 'Sam', votes: 2 },
+  ];
   return {
+    async pulse() {
+      const open = bugRows.filter((b) => b.status === 'open');
+      const today = new Date();
+      const waiting = reportRows.length;
+      const asks = requestRows.filter((r) => r.status === 'open').length;
+      return {
+        members: 214, members_week: 31, active_week: 96, visits: 178, visits_week: 42, visit_people: 61, saves: 409, saves_week: 55,
+        open_bugs: open.length, newest_bug: open[0]?.last_seen ?? null,
+        days: [8, 11, 9, 14, 17, 22, 19, 21, 26, 24, 31, 38, 35, 41].map((n, i) => {
+          const d = new Date(today.getTime() - (13 - i) * DAY);
+          return { d: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, n };
+        }),
+        funnel: [['signed', 214], ['setup', 188], ['followed', 140], ['placed', 122], ['visited', 61], ['regular', 23]].map(([key, n]) => ({ key, n })),
+        screens: [['/feed', 2140], ['/recs', 1620], ['/profile', 980], ['/restaurant/:id', 760], ['/post/:id', 410], ['/add', 230], ['/curated/top25', 190], ['/notifications', 150]].map(([path, n]) => ({ path, n })),
+        todo: [
+          waiting ? { key: 'reports', level: 'hot', go: 'inbox', title: `${waiting} report${waiting === 1 ? ' is' : 's are'} waiting`, detail: 'Someone flagged something. Remove it or dismiss it.' } : null,
+          open.length ? { key: 'bugs', level: 'hot', go: 'health', title: `${open.length} bug${open.length === 1 ? ' is' : 's are'} open`, detail: `Newest: "${open[0].title}", last seen today.` } : null,
+          { key: 'save_not_log', level: 'do', go: 'people', title: 'People save, they do not log', detail: '409 saves against 178 visits. Logging is the habit that makes Bite stick.' },
+          asks ? { key: 'requests', level: 'do', go: 'inbox', title: `${asks} feature request${asks === 1 ? ' is' : 's are'} waiting`, detail: 'Mark each one planned or shipped, so people see they were heard.' } : null,
+          { key: 'quiet', level: 'do', go: 'people', title: '3 members have gone quiet', detail: 'They used Bite before and have not opened it in a week.' },
+          { key: 'lists', level: 'do', go: 'lists', title: 'Bite’s lists are thin', detail: 'Top 25 has 5 of 25. Newly Opened has 1, Sweet Tooth has 2, Coffee & Matcha has 2.' },
+        ].filter(Boolean),
+      };
+    },
+    async people() {
+      return members.map((m) => ({ ...m }));
+    },
+    async inbox() {
+      return { reports: reportRows.map((r) => ({ ...r })), requests: requestRows.map((r) => ({ ...r })).sort((a, b) => (b.status === 'open') - (a.status === 'open') || b.votes - a.votes) };
+    },
+    async bugs() {
+      return { open: bugRows.filter((b) => b.status === 'open').length, reports_7d: 8, users_7d: 3, issues: bugRows.map((b) => ({ ...b })).sort((a, b) => (b.status === 'open') - (a.status === 'open')) };
+    },
+    async signals() {
+      await pause();
+      return {
+        ok: true,
+        sentry: {
+          connected: true, crash_free: 0.992, sessions: 1240, url: 'https://sentry.io',
+          issues: [
+            { id: 'BITE-7', title: 'Video picker ran out of memory', culprit: 'add', level: 'fatal', count: 5, users: 3, first_seen: ago(2), last_seen: ago(0.1), url: 'https://sentry.io' },
+            { id: 'BITE-6', title: 'Unable to open URL: mailto', culprit: 'settings', level: 'error', count: 1, users: 1, first_seen: ago(3), last_seen: ago(3), url: 'https://sentry.io' },
+          ],
+        },
+        posthog: {
+          connected: true, sessions: 1240, people: 96, avg_seconds: 250, url: 'https://us.posthog.com',
+          devices: [{ name: 'iPhone 15 Pro', n: 31 }, { name: 'iPhone 13', n: 22 }, { name: 'iPhone 16', n: 18 }],
+          systems: [{ name: 'iOS 18.1', n: 61 }, { name: 'iOS 17.6', n: 20 }],
+        },
+      };
+    },
+    async resolveBug(fingerprint, status) {
+      await pause();
+      const b = bugRows.find((x) => x.fingerprint === fingerprint);
+      if (b) Object.assign(b, { status, reopened_at: null });
+    },
+    async resolveReport(id) {
+      await pause();
+      reportRows = reportRows.filter((r) => r.id !== id);
+    },
+    async requestStatus(id, status) {
+      await pause();
+      const q = requestRows.find((x) => x.id === id);
+      if (q) q.status = status;
+    },
     async user() {
       return { email: 'demo@bite' };
     },
@@ -463,6 +601,9 @@ function demoApi() {
 
 const api = DEMO ? demoApi() : liveApi();
 
+// Pulse, People, Health and Inbox live in their own file.
+const ops = initOps({ el, $, api, toast, explain, plural, setTab: (name) => setTab(name) });
+
 // ───────────────────────── what is on screen ─────────────────────────
 
 let picks = []; // every row of every list, drafts included
@@ -474,7 +615,7 @@ let found = { q: '', bite: [], google: null }; // the search panel
 let busy = false; // one change at a time
 let panelPlace = null; // the place the close-up panel is showing
 let lastDrag = 0; // when a drag last ended, so its click is not a tap
-let tab = 'lists'; // lists, guides or history
+let tab = 'pulse'; // which page is showing: see TABS
 let statuses = null; // what Google last said about listed places; null = not available yet
 let statusById = new Map();
 let checking = false; // a closed-place check is running
@@ -569,6 +710,8 @@ async function refresh() {
   renderHistory();
   if ($('panel').open && panelPlace) renderPanel();
   if ($('preview').open) renderPreview();
+  // The operations pages load beside the editor, and never hold it up.
+  ops.refresh().catch(() => {});
   // Photos for the places on the lists, then draw the lists again.
   ensureThumbs(picks.map((p) => p.restaurant?.place_id)).then((got) => {
     if (got && !document.querySelector('.sortable-chosen')) renderLists();
@@ -621,6 +764,12 @@ function renderStatus() {
 
 function renderTotals() {
   const box = $('totals');
+  // Pulse has the fuller set of numbers; these are the fallback until
+  // the database has it (migration 072).
+  if (ops.has()) {
+    ops.renderTiles();
+    return;
+  }
   if (!totals || totals.accounts == null) {
     box.hidden = true;
     return;
@@ -1551,24 +1700,42 @@ function renderHistory() {
 
 // ───────────────────────── sections ─────────────────────────
 
-function setTab(name) {
-  if (name === tab) return;
-  if (tab === 'guides' && draft?.dirty && !window.confirm('This guide has changes you have not saved. Leave them behind?')) return;
-  if (tab === 'guides' && draft?.dirty) draft = null;
-  tab = name;
-  for (const t of ['lists', 'guides', 'history']) {
+const TABS = ['pulse', 'people', 'lists', 'guides', 'health', 'inbox', 'history'];
+let editorLine = ''; // today's line for the editing pages, set by greet()
+// The two pages that add places get the search panel beside them.
+const EDITING = ['lists', 'guides'];
+
+// Shows the page that `tab` names, and hides what does not belong on it.
+function applyTab() {
+  for (const t of TABS) {
     $(`tab-${t}`).classList.toggle('on', t === tab);
     $(`view-${t}`).hidden = t !== tab;
   }
-  // The search panel is for adding places: no use on the History page.
-  document.querySelector('.find').hidden = tab === 'history';
+  const editing = EDITING.includes(tab);
+  document.querySelector('.find').hidden = !editing;
+  document.querySelector('.layout').classList.toggle('wide', !editing);
+  // Publishing is about the lists: out of the way everywhere else.
+  const lists = editing || tab === 'history';
+  // The line under the greeting: the job on the editing pages, the state of things elsewhere.
+  $('hello-sub').textContent = lists ? editorLine : 'Here is where Bite stands, and what to do about it.';
+  $('status').hidden = !lists;
+  $('publish').hidden = !lists;
   $('search-note').textContent =
     tab === 'guides'
       ? 'Type to find places already on Bite. Press Enter to search every place in Singapore, with photos. Results go into the guide you have open.'
       : 'Type to find places already on Bite. Press Enter to search every place in Singapore, with photos.';
+}
+
+function setTab(name) {
+  if (name === tab || !TABS.includes(name)) return;
+  if (tab === 'guides' && draft?.dirty && !window.confirm('This guide has changes you have not saved. Leave them behind?')) return;
+  if (tab === 'guides' && draft?.dirty) draft = null;
+  tab = name;
+  applyTab();
   renderGuidePicker();
   if (tab === 'guides' && draft) renderGuideEditor();
   renderResults();
+  window.scrollTo({ top: 0 });
 }
 
 // ───────────────────────── wiring ─────────────────────────
@@ -1639,7 +1806,8 @@ async function greet() {
     'Rank it like your reputation depends on it.',
   ];
   $('hello').textContent = `${part}.`;
-  $('hello-sub').textContent = lines[new Date().getDate() % lines.length];
+  editorLine = lines[new Date().getDate() % lines.length];
+  applyTab();
   const name = await api.myName().catch(() => '');
   if (name) $('hello').textContent = `${part}, ${name}.`;
 }
@@ -1665,6 +1833,8 @@ async function enter() {
   }
   $('demo-flag').hidden = !DEMO;
   show('app');
+  applyTab();
+  ops.renderAll();
   greet();
   try {
     await refresh();
@@ -1728,7 +1898,7 @@ $('search-form').addEventListener('submit', (evt) => {
   searchEverywhere();
 });
 
-for (const t of ['lists', 'guides', 'history']) $(`tab-${t}`).addEventListener('click', () => setTab(t));
+for (const t of TABS) $(`tab-${t}`).addEventListener('click', () => setTab(t));
 
 // Leaving the page with an unsaved guide asks first.
 window.addEventListener('beforeunload', (evt) => {

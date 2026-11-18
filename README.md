@@ -2,9 +2,8 @@
 
 The admin website for Bite, at https://bite-asia.github.io/hq/
 
-It edits Bite's hand-picked lists: Top 25, Newly opened, Sweet Tooth,
-Coffee & Matcha. Drag a place to rank it, search to add one, remove one,
-and publish.
+It is where Bite is run from. Four pages show how the app is doing and
+what needs doing; three edit Bite's hand-picked lists and guides.
 
 ## Who can use it
 
@@ -33,8 +32,17 @@ made-up places and saves nothing.
 - **What Bite is saying.** Most visited, top rated, most saved and
   rising places, from everyone on Bite. Totals only, never who.
 
-## The three sections
+## The seven pages
 
+- **Pulse.** The first page. The headline numbers, a list called Do
+  This Next that is worked out from them, who was active each day,
+  where people drop off after signing up, and which screens they use.
+- **People.** Every member: when they joined, when they were last seen,
+  how much they have done, which update their phone runs. Counts and
+  dates only. Never which places, never what anyone wrote.
+- **Health.** Bugs from Bite's own log, with Mark Fixed and Ignore;
+  crashes from Sentry; and who has the latest update.
+- **Inbox.** Reports members have made, and their feature requests.
 - **Lists.** The four hand-picked lists, a Preview of each as the app
   shows it, a warning when a listed place has closed, and Bite’s numbers.
 - **Guides.** Guides owned by the official Bite account: write, order,
@@ -44,11 +52,19 @@ made-up places and saves nothing.
 The closed-place check asks Google about every listed place once a
 week, when the site is opened. It does not run on its own.
 
+## Sentry and PostHog
+
+The page holds no key for either. It asks a function on Bite's server
+(`hq-signals`), which checks the caller is an admin and keeps both
+keys as secrets. Until those secrets are set, the two cards say they are
+not connected. Never put either key in this folder: it is public.
+
 ## Files
 
 | File | What it is |
 |---|---|
 | `index.html`, `hq.css`, `hq.js` | The page. Written by hand. |
+| `ops.js` | Pulse, People, Health and Inbox. Written by hand. |
 | `config.js` | The Supabase address, the public key and the list names. Generated. |
 | `tags-cuisines.js`, `tags-areas.js` | The app's rules for cuisine, venue type and area. Generated. |
 
