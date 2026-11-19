@@ -280,6 +280,17 @@ function liveApi() {
     async resolveBug(fingerprint, status) {
       must(await db.rpc('admin_resolve_error', { p_fingerprint: fingerprint, p_status: status }));
     },
+    // The daily bug check (migration 073): null until the database has it.
+    async bugCheck() {
+      const { data, error } = await db.rpc('hq_bug_check');
+      return error ? null : data ?? null;
+    },
+    async bugCheckSet(mode) {
+      must(await db.rpc('hq_bug_check_set', { p_mode: mode }));
+    },
+    async bugDecide(id, decision) {
+      must(await db.rpc('hq_bug_report_decide', { p_id: id, p_decision: decision }));
+    },
     async resolveReport(id, action) {
       must(await db.rpc('admin_resolve_report', { p_report: id, p_action: action }));
     },
@@ -385,6 +396,16 @@ function demoApi() {
     { fingerprint: 'bug-3', kind: 'request', title: '409 POST entries: duplicate key value violates unique constraint', status: 'fixed', note: 'Double tap on Save', fixed_in: '1.0.0', count: 4, count_7d: 0, users: 2, first_seen: ago(30), last_seen: ago(21), reopened_at: null,
       sample: { message: '409 POST entries: duplicate key', stack: null, screen: '/add', app_version: '1.0.0', platform: 'ios', os_version: '18.0', device: 'iPhone 14', created_at: ago(21) } },
   ];
+  let checkMode = 'daily';
+  const checkRows = [
+    { id: 'fix-1', created_at: ago(0.1), source: 'bite', bug_id: 'bug-1', title: 'Home sometimes fails to load your own profile', hit: '3 people, 6 times, last 7h ago',
+      cause: 'When Bite reloads your profile and the first try comes back empty, it falls back to an older way of reading it. The security pass banned that older way, so the fallback can only fail.',
+      fix: 'Remove the old fallback and retry the proper call once instead. Two files change.', fix_kind: 'app',
+      risk: 'Low. The fallback already never worked, so nothing that works today is taken away.', status: 'waiting', decided_at: null, result: null, updated_at: ago(0.1) },
+    { id: 'fix-2', created_at: ago(4), source: 'sentry', bug_id: 'BITE-7', title: 'Picking a long video ran the phone out of memory', hit: '3 people, 5 times',
+      cause: null, fix: null, fix_kind: 'app', risk: null, status: 'published', decided_at: ago(3.9),
+      result: 'Videos are now shrunk at the picker. Published 15 Nov.', updated_at: ago(3.5) },
+  ];
   let reportRows = [
     { id: 'report-1', target_type: 'comment', target_id: 'c1', target_user_id: 'member-8', reason: 'spam', details: null, status: 'open', created_at: ago(0.4), reporter: 'Mei Ling', target_name: 'Daniel', target_username: 'daniel', preview: 'Cheap followers, link in my profile!!', against_user: 2 },
     { id: 'report-2', target_type: 'post', target_id: 'p1', target_user_id: 'member-6', reason: 'false_info', details: 'This place closed last year.', status: 'open', created_at: ago(2), reporter: 'Arjun', target_name: 'Wei Jie', target_username: 'weijie', preview: 'Best prata in town, open till 3am.', against_user: 1 },
@@ -451,6 +472,18 @@ function demoApi() {
       await pause();
       const b = bugRows.find((x) => x.fingerprint === fingerprint);
       if (b) Object.assign(b, { status, reopened_at: null });
+    },
+    async bugCheck() {
+      return { mode: checkMode, last_run: ago(0.1), last_note: '1 new bug. 1 older one is still open.', reports: checkRows.map((r) => ({ ...r })) };
+    },
+    async bugCheckSet(mode) {
+      await pause();
+      checkMode = mode;
+    },
+    async bugDecide(id, decision) {
+      await pause();
+      const r = checkRows.find((x) => x.id === id);
+      if (r) Object.assign(r, { status: decision, decided_at: decision === 'waiting' ? null : new Date().toISOString() });
     },
     async resolveReport(id) {
       await pause();

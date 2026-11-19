@@ -434,6 +434,14 @@ tr.person-more td { background: var(--paper); border-top: 0; white-space: normal
 .bug-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bug-more { margin-top: 10px; background: var(--paper); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; }
 .bug-more pre { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink2); max-height: 220px; overflow: auto; }
+/* The daily bug check: its switch beside its title, and each proposal. */
+.check-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.check-top > div:first-child { flex: 1 1 320px; min-width: 0; display: grid; gap: 2px; }
+.report-body { margin-top: 12px; background: var(--paper); border-radius: 14px; padding: 14px 16px; display: grid; gap: 12px; }
+.part h3 { font-size: 12px; color: var(--ink3); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 3px; }
+.part p { font-size: 14.5px; overflow-wrap: anywhere; }
+.part .lead { font-weight: 800; color: var(--olive); }
+.report.done b { color: var(--ink2); }
 .quote { background: var(--paper); border-radius: 12px; padding: 9px 12px; font-size: 14px; margin-top: 6px; overflow-wrap: anywhere; }
 .bug-top > div.votes:first-child { flex: 0 0 56px; display: grid; justify-items: center; gap: 0; background: var(--wash); border-radius: 14px; padding: 8px 6px; }
 .votes b { font-size: 20px; line-height: 1.1; color: var(--olive); }

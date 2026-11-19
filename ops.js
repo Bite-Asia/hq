@@ -108,6 +108,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
   let inbox;
   let bugs;
   let signals;
+  let check; // the daily bug check: its switch, its last run, its proposals
   let filter = 'all';
   let openPerson = null;
   let openBug = null;
@@ -482,6 +483,98 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
     ]);
   }
 
+  // The daily bug check. Claude reads the bugs each morning in the Claude
+  // app, and writes what it found here. This page can switch it on and
+  // off and say yes or no to a fix. It cannot build or publish anything:
+  // a yes is acted on at the check's next run, and publishing takes
+  // Arnold's word in Claude.
+  const REPORT_STATE = {
+    waiting: ['Waiting for You', 'pill warn'],
+    approved: ['Approved', 'pill lime'],
+    declined: ['Not Now', 'pill grey'],
+    built: ['Built, Not Published', 'pill lime'],
+    published: ['Published', 'pill good'],
+    closed: ['Closed', 'pill grey'],
+  };
+  const FIX_KIND = { app: 'An app update', database: 'A database change you run', yours: 'Something only you can do', none: 'Nothing to change' };
+  const CHECK_MODES = [['daily', 'Every Day'], ['weekdays', 'Weekdays'], ['off', 'Off']];
+
+  function reportRow(r) {
+    const [stateText, stateCls] = REPORT_STATE[r.status] ?? [r.status, 'pill grey'];
+    const live = ['waiting', 'approved', 'built'].includes(r.status);
+    const decide = (text, decision, cls, done) =>
+      el('button', { class: cls, type: 'button', text, on: { click: () => act(() => api.bugDecide(r.id, decision), done) } });
+    const part = (label, text, lead) =>
+      text
+        ? el('div', { class: 'part' }, [
+            el('h3', { text: label }),
+            lead ? el('p', { class: 'small lead', text: lead }) : null,
+            el('p', { text }),
+          ])
+        : null;
+    return el('div', { class: live ? 'bug report' : 'bug report done' }, [
+      el('div', { class: 'bug-top' }, [
+        el('div', {}, [
+          el('b', { text: r.title }),
+          el('span', {
+            class: 'quiet small',
+            text: [r.source === 'sentry' ? 'From Sentry' : 'From Bite\u2019s log', `found ${ago(r.created_at)}`, r.hit].filter(Boolean).join(' · '),
+          }),
+        ]),
+        el('div', { class: 'bug-acts' }, [
+          el('span', { class: stateCls, text: stateText }),
+          ...(r.status === 'waiting'
+            ? [decide('Approve', 'approved', 'primary small-btn', 'Approved. It is built at the next check.'), decide('Not Now', 'declined', 'plain small-btn', 'Left alone')]
+            : r.status === 'approved' || r.status === 'declined'
+              ? [decide('Undo', 'waiting', 'plain small-btn', 'Back to waiting')]
+              : []),
+        ]),
+      ]),
+      live
+        ? el('div', { class: 'report-body' }, [
+            part('Cause', r.cause),
+            part('Fix', r.fix, FIX_KIND[r.fix_kind]),
+            part('Risk', r.risk),
+            part('What Happened', r.result),
+          ])
+        : r.result
+          ? el('p', { class: 'quiet small', text: r.result })
+          : null,
+    ]);
+  }
+
+  function checkCard() {
+    if (check === undefined) return el('section', { class: 'card' }, [el('h2', { text: 'Bug Check' }), loading()]);
+    if (check === null) {
+      return el('section', { class: 'card' }, [
+        el('h2', { text: 'Bug Check' }),
+        el('p', { class: 'quiet', text: 'This needs migration 073. Run it in Supabase and reload.' }),
+      ]);
+    }
+    const reports = check.reports ?? [];
+    const how = check.mode === 'off'
+      ? 'Switched off. Nothing is reading the bugs for you.'
+      : `Claude reads the bugs ${check.mode === 'weekdays' ? 'each weekday' : 'every'} morning, finds the cause and puts the fix here for you to approve.`;
+    return el('section', { class: 'card' }, [
+      el('div', { class: 'check-top' }, [
+        el('div', {}, [
+          el('h2', { text: 'Bug Check' }),
+          el('p', { class: 'quiet small', text: how }),
+          el('p', { class: 'quiet small', text: check.last_run ? `Last ran ${dayTime(check.last_run)}. ${check.last_note ?? ''}` : 'It has not reported here yet.' }),
+        ]),
+        el('div', { class: 'seg' }, CHECK_MODES.map(([k, label]) =>
+          el('button', {
+            class: check.mode === k ? 'on' : null, type: 'button', text: label,
+            on: { click: () => { if (check.mode !== k) act(() => api.bugCheckSet(k), k === 'off' ? 'Bug Check is off' : `Bug Check runs ${k === 'weekdays' ? 'on weekdays' : 'every day'}`); } },
+          }))),
+      ]),
+      reports.length
+        ? el('div', { class: 'bugs' }, reports.map(reportRow))
+        : el('p', { class: 'empty', text: 'No proposals yet. When a bug turns up, its cause and fix appear here.' }),
+      el('p', { class: 'quiet small foot', text: 'Approve a fix and it is built the next time the check runs. A built fix reaches phones only when you say go in Claude. The time of day is set in the Claude app, under Scheduled.' }),
+    ]);
+  }
+
   function renderHealth() {
     const view = $('view-health');
     if (bugs === undefined) return view.replaceChildren(loading());
@@ -527,7 +620,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
             ]),
     ]);
 
-    view.replaceChildren(bugsCard, el('div', { class: 'ops-two even' }, [sentryCard(true), updateCard]));
+    view.replaceChildren(checkCard(), bugsCard, el('div', { class: 'ops-two even' }, [sentryCard(true), updateCard]));
   }
 
   // ───────────────────────── Inbox ─────────────────────────
@@ -604,7 +697,7 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
   }
 
   async function refresh() {
-    [pulse, people, inbox, bugs] = await Promise.all([api.pulse(), api.people(), api.inbox(), api.bugs()]);
+    [pulse, people, inbox, bugs, check] = await Promise.all([api.pulse(), api.people(), api.inbox(), api.bugs(), api.bugCheck()]);
     renderTiles();
     renderAll();
     // Sentry and PostHog answer more slowly: fill them in when they do.
