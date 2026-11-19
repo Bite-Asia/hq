@@ -181,14 +181,24 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
       latest,
       opened: rows.length,
       on: reported.filter((p) => p.running.update_at === latest).length,
-      behind: rows.filter((p) => latest && p.running.update_at !== latest),
+      // Opened Bite after the update came out, and still not on it: their
+      // next open picks it up.
+      behind: rows.filter((p) => latest && p.running.update_at !== latest && openedSince(p, latest)),
+      // Have not opened Bite since it came out, so they could not have it.
+      away: rows.filter((p) => latest && p.running.update_at !== latest && !openedSince(p, latest)),
       silent: rows.length - reported.length,
     };
   }
+  // Did this phone last open Bite after the update was published?
+  function openedSince(p, latest) {
+    return Boolean(p.running?.at) && new Date(p.running.at).getTime() >= new Date(latest).getTime();
+  }
   function updateState(p, latest) {
     if (!p.running?.at) return { text: 'Never Opened', cls: 'pill grey' };
+    if (latest && p.running.update_at === latest) return { text: 'Latest', cls: 'pill good' };
+    if (latest && !openedSince(p, latest)) return { text: 'Not Opened Since', cls: 'pill grey' };
     if (!p.running.update_at) return { text: p.running.version ? 'Build Only' : 'Not Reported', cls: 'pill grey' };
-    return p.running.update_at === latest ? { text: 'Latest', cls: 'pill good' } : { text: 'Behind', cls: 'pill warn' };
+    return { text: 'Behind', cls: 'pill warn' };
   }
 
   function sentryCard(full) {
@@ -496,16 +506,23 @@ export function initOps({ el, $, api, toast, explain, plural, setTab }) {
         : !u.latest
           ? el('p', { class: 'quiet small', text: 'No phone has reported an update yet. They start reporting once the app update that adds this is published and opened.' })
           : el('div', {}, [
-              el('p', { class: 'big', text: `${u.on} of ${u.opened}` }),
-              el('p', { class: 'quiet small', text: `people are on the update from ${dayTime(u.latest)}, the newest any phone has reported.` }),
+              el('p', { class: 'big', text: `${u.on} of ${u.on + u.behind.length}` }),
+              el('p', { class: 'quiet small', text: `people who have opened Bite since it came out are on the update from ${dayTime(u.latest)}, the newest any phone has reported.` }),
               el('div', { class: 'rule' }),
               ...(u.behind.length
                 ? u.behind.map((p) =>
                     el('div', { class: 'line' }, [
                       el('b', { text: p.display_name || p.username || 'No name' }),
-                      el('span', { class: 'quiet small', text: p.running.update_at ? `On the update from ${dayTime(p.running.update_at)} · opened ${ago(p.running.at)}` : `Has not reported one · opened ${ago(p.running.at)}` }),
+                      el('span', { class: 'quiet small', text: `Opened ${ago(p.running.at)}, still on ${p.running.update_at ? `the update from ${dayTime(p.running.update_at)}` : 'the plain build'}. Their next open picks it up.` }),
                     ]))
-                : [el('p', { class: 'empty', text: 'Everyone who has opened Bite is on it.' })]),
+                : [el('p', { class: 'empty', text: 'Everyone who has opened Bite since is on it.' })]),
+              u.away.length ? el('div', { class: 'rule' }) : null,
+              u.away.length ? el('h3', { class: 'sub', text: 'Not Opened Bite Since' }) : null,
+              ...u.away.map((p) =>
+                el('div', { class: 'line' }, [
+                  el('b', { text: p.display_name || p.username || 'No name' }),
+                  el('span', { class: 'quiet small', text: `Last opened ${ago(p.running.at)}. They get it when they come back.` }),
+                ])),
               el('p', { class: 'quiet small foot', text: 'A phone picks up an update the second time it opens Bite after you publish.' }),
             ]),
     ]);
